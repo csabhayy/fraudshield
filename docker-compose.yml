@@ -54,21 +54,18 @@ services:
       - fraudshield-net
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
-  streamlit:
+  frontend:
     build:
       context: .
-      dockerfile: Dockerfile.streamlit
+      dockerfile: Dockerfile.frontend
+      args:
+        - VITE_API_BASE_URL=   # not needed; we use proxy
     ports:
-      - "8501:8501"
-    environment:
-      - API_BASE=http://api:8000
+      - "3000:80"   # map container's nginx port 80 to host 3000
     depends_on:
       - api
-    volumes:
-      - ./data:/app/data
     networks:
       - fraudshield-net
-    command: streamlit run streamlit_app.py --server.port=8501 --server.address=0.0.0.0
 
 networks:
   fraudshield-net:

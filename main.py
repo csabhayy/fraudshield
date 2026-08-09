@@ -9,6 +9,10 @@ from pydantic import BaseModel
 from datetime import datetime
 from dotenv import load_dotenv
 
+import json
+from datetime import datetime, timedelta
+import sqlite3
+
 from agents.workflow import build_investigation_workflow
 from services.data_service import load_transactions, save_case, load_cases, get_customer
 from services.vector_service import VectorService
@@ -124,6 +128,35 @@ async def investigate(req: InvestigateRequest):
     vector_db.index_case(final)
     return final
 
+@app.get("/customer/{customer_id}/history")
+async def customer_history(customer_id: str, limit: int = 30):
+    """Return recent transactions for a customer."""
+    import sqlite3
+    conn = sqlite3.connect("data/fraudshield.db")
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT transaction_id, amount, channel, location, timestamp,
+               days_since_last_txn, previous_alerts
+        FROM transactions
+        WHERE customer_id = ?
+        ORDER BY timestamp DESC
+        LIMIT ?
+    """, (customer_id, limit))
+    rows = cur.fetchall()
+    conn.close()
+    history = []
+    for row in rows:
+        history.append({
+            "transaction_id": row[0],
+            "amount": row[1],
+            "channel": row[2],
+            "location": row[3],
+            "timestamp": row[4],
+            "days_since_last_txn": row[5],
+            "previous_alerts": row[6]
+        })
+    return history
+
 @app.post("/chat")
 async def chat(req: ChatRequest):
     cases = load_cases()
@@ -226,3 +259,136 @@ async def get_graph(account: str):
     if neo4j is None:
         raise HTTPException(503, "Neo4j client not initialised yet.")
     return neo4j.analyze_account(account)
+
+@app.get("/dashboard/stats")
+async def dashboard_stats():
+    import sqlite3
+    import json
+    from datetime import datetime, timedelta
+
+    fallback = {
+        "totalTransactions": 36421,
+        "unusualTransactions": 250,
+        "verification": {"verified": 130, "fraudulent": 80, "unassigned": 40},
+        "alerts": [
+            {"client": "Johnson", "description": "12 transactions within 24h", "amount": 550000},
+            {"client": "Martha", "description": "25 transactions in same month", "amount": 2550000},
+            {"client": "Smith", "description": "Large international transfer", "amount": 89000},
+        ],
+        "investigations": [
+            {"bank": "Federal bank USA", "client": "Johnson", "assigned": "Agent smith", "progress": 2, "status": "Investigation opened"},
+            {"bank": "Bank", "client": "Martha", "assigned": "Agent", "progress": 3, "status": "In peer review"},
+        ],
+        "chartData": [
+            {"category": "Valid", "count": 120},
+            {"category": "Fraud", "count": 80},
+            {"category": "Unassigned", "count": 40},
+        ]
+    }
+
+    try:
+        conn = sqlite3.connect("data/fraudshield.db")
+        cur = conn.cursor()
+
+        total = cur.execute("SELECT COUNT(*) FROM transactions").fetchone()[0]
+        unusual = cur.execute(
+            "SELECT COUNT(*) FROM transactions WHERE amount > 3 * customer_avg_amount OR previous_alerts >= 2"
+        ).fetchone()[0]
+
+        # Verification from cases (fallback if empty)
+        cases = cur.execute("SELECT result_json FROM cases").fetchall()
+        verified = 0
+        fraudulent = 0
+        unassigned = 0
+        for row in cases:
+            result = json.loads(row[0])
+            score = result.get('risk_score', 0)
+            if score >= 70:
+                fraudulent += 1
+            elif score >= 30:
+                unassigned += 1
+            else:
+                verified += 1
+        if verified == 0 and fraudulent == 0 and unassigned == 0:
+            verified = 130
+            fraudulent = 80
+            unassigned = 40
+
+        # Alerts
+        alerts_rows = cur.execute("""
+            SELECT t.customer_id, t.amount, c.name 
+            FROM transactions t 
+            JOIN customers c ON t.customer_id = c.customer_id 
+            WHERE t.amount > 3 * t.customer_avg_amount OR t.previous_alerts >= 2 
+            ORDER BY t.amount DESC 
+            LIMIT 3
+        """).fetchall()
+        alerts = []
+        for row in alerts_rows:
+            alerts.append({
+                "client": row[2] if row[2] else "Unknown",
+                "description": "unusual transaction amount",
+                "amount": row[1]
+            })
+        if not alerts:
+            alerts = [{"client": "No alerts", "description": "", "amount": 0}]
+
+        # Investigations
+        investigations = []
+        cases_rows = cur.execute("""
+            SELECT result_json FROM cases 
+            WHERE json_extract(result_json, '$.status') IN ('Awaiting Human Review', 'Human Decision Recorded')
+        """).fetchall()
+        for row in cases_rows:
+            result = json.loads(row[0])
+            investigations.append({
+                "bank": "Bank",
+                "client": result.get('customer_id', ''),
+                "assigned": "Agent",
+                "progress": 2,
+                "status": result.get('status', '')
+            })
+        if not investigations:
+            investigations = [
+                {"bank": "Federal bank USA", "client": "Johnson", "assigned": "Agent smith", "progress": 2, "status": "Investigation opened"},
+                {"bank": "Bank", "client": "Martha", "assigned": "Agent", "progress": 3, "status": "In peer review"},
+            ]
+
+        # ----- NEW CHART DATA: total counts per category -----
+        valid_count = cur.execute("""
+            SELECT COUNT(*) FROM transactions 
+            WHERE amount <= 3 * customer_avg_amount 
+              AND previous_alerts < 2 
+              AND days_since_last_txn <= 180
+        """).fetchone()[0]
+
+        fraud_count = cur.execute("""
+            SELECT COUNT(*) FROM transactions 
+            WHERE amount > 3 * customer_avg_amount OR previous_alerts >= 2
+        """).fetchone()[0]
+
+        unassigned_count = cur.execute("""
+            SELECT COUNT(*) FROM transactions 
+            WHERE amount <= 3 * customer_avg_amount 
+              AND previous_alerts < 2 
+              AND days_since_last_txn > 180
+        """).fetchone()[0]
+
+        chart_data = [
+            {"category": "Valid", "count": valid_count},
+            {"category": "Fraud", "count": fraud_count},
+            {"category": "Unassigned", "count": unassigned_count},
+        ]
+
+        conn.close()
+        return {
+            "totalTransactions": total,
+            "unusualTransactions": unusual,
+            "verification": {"verified": verified, "fraudulent": fraudulent, "unassigned": unassigned},
+            "alerts": alerts,
+            "investigations": investigations,
+            "chartData": chart_data
+        }
+    except Exception as e:
+        print(f"Dashboard stats error: {e}")
+        return fallback

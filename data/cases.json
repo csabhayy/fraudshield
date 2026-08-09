@@ -1,0 +1,1636 @@
+[
+  {
+    "case_id": "FS-TXN-CRIT-001",
+    "transaction_id": "TXN-CRIT-001",
+    "customer_id": "CUS-2021",
+    "masked_account": "XXXX1021",
+    "amount": 700000.0,
+    "risk_score": 96,
+    "risk_level": "Critical",
+    "rule_score": 100,
+    "anomaly_score": "100",
+    "network_score": 90,
+    "customer_risk_score": 75,
+    "reasons": [
+      {
+        "rule": "R1 Transaction spike",
+        "points": 30,
+        "evidence": "Amount is 17.5x the customer's historical average."
+      },
+      {
+        "rule": "R2 Dormant activation",
+        "points": 30,
+        "evidence": "Account had no activity for 286 days."
+      },
+      {
+        "rule": "R3 Velocity spike",
+        "points": 15,
+        "evidence": "6 transactions observed in the 24-hour review window."
+      },
+      {
+        "rule": "R4 Rapid fund movement",
+        "points": 25,
+        "evidence": "Outgoing value equals 95% of the analyzed credit in the review window."
+      }
+    ],
+    "graph": {
+      "cycles": [
+        [
+          "ACC-1031",
+          "ACC-1006",
+          "ACC-1014",
+          "ACC-1021"
+        ],
+        [
+          "ACC-1031",
+          "ACC-1033",
+          "ACC-1021"
+        ],
+        [
+          "ACC-1031",
+          "ACC-1033",
+          "ACC-1035",
+          "ACC-1018",
+          "ACC-1021"
+        ],
+        [
+          "ACC-1031",
+          "ACC-1033",
+          "ACC-1039",
+          "ACC-1021"
+        ],
+        [
+          "ACC-1031",
+          "ACC-1033",
+          "ACC-1039",
+          "ACC-1018",
+          "ACC-1021"
+        ],
+        [
+          "ACC-1031",
+          "ACC-1008",
+          "ACC-1006",
+          "ACC-1014",
+          "ACC-1021"
+        ],
+        [
+          "ACC-1011",
+          "ACC-1039",
+          "ACC-1021",
+          "ACC-1009",
+          "ACC-1013"
+        ],
+        [
+          "ACC-1008",
+          "ACC-1006",
+          "ACC-1014",
+          "ACC-1021",
+          "ACC-1009"
+        ],
+        [
+          "ACC-1021",
+          "ACC-1033"
+        ],
+        [
+          "ACC-1021",
+          "ACC-1033",
+          "ACC-1035",
+          "ACC-1018"
+        ],
+        [
+          "ACC-1021",
+          "ACC-1033",
+          "ACC-1039"
+        ],
+        [
+          "ACC-1021",
+          "ACC-1033",
+          "ACC-1039",
+          "ACC-1018"
+        ],
+        [
+          "ACC-1021",
+          "ACC-1014"
+        ],
+        [
+          "ACC-1021",
+          "ACC-1014",
+          "ACC-1020",
+          "ACC-1033"
+        ],
+        [
+          "ACC-1021",
+          "ACC-1014",
+          "ACC-1020",
+          "ACC-1033",
+          "ACC-1039"
+        ],
+        [
+          "ACC-1021",
+          "ACC-1006",
+          "ACC-1014"
+        ],
+        [
+          "ACC-1021",
+          "ACC-1006",
+          "ACC-1014",
+          "ACC-1020",
+          "ACC-1033"
+        ],
+        [
+          "ACC-1021",
+          "ACC-1006",
+          "ACC-1036",
+          "ACC-1026",
+          "ACC-1033"
+        ]
+      ],
+      "neighbors": [
+        "ACC-1001",
+        "ACC-1006",
+        "ACC-1009",
+        "ACC-1014",
+        "ACC-1018",
+        "ACC-1031",
+        "ACC-1033",
+        "ACC-1039"
+      ],
+      "evidence": [
+        "Circular path detected: ACC-1031 \u2192 ACC-1006 \u2192 ACC-1014 \u2192 ACC-1021 \u2192 ACC-1031",
+        "Account is connected to 8 counterparties in the review window."
+      ],
+      "edges": [
+        {
+          "from": "ACC-1014",
+          "to": "ACC-1021",
+          "amount": 600000.0
+        },
+        {
+          "from": "ACC-1014",
+          "to": "ACC-1020",
+          "amount": 25313.44
+        },
+        {
+          "from": "ACC-1021",
+          "to": "ACC-1033",
+          "amount": 184000.0
+        },
+        {
+          "from": "ACC-1021",
+          "to": "ACC-1014",
+          "amount": 210000.0
+        },
+        {
+          "from": "ACC-1021",
+          "to": "ACC-1006",
+          "amount": 28951.44
+        },
+        {
+          "from": "ACC-1021",
+          "to": "ACC-1031",
+          "amount": 19220.72
+        },
+        {
+          "from": "ACC-1021",
+          "to": "ACC-1009",
+          "amount": 8717.22
+        },
+        {
+          "from": "ACC-1021",
+          "to": "ACC-1001",
+          "amount": 9113.97
+        },
+        {
+          "from": "ACC-1006",
+          "to": "ACC-1014",
+          "amount": 620000.0
+        },
+        {
+          "from": "ACC-1006",
+          "to": "ACC-1036",
+          "amount": 41697.8
+        },
+        {
+          "from": "ACC-1031",
+          "to": "ACC-1006",
+          "amount": 650000.0
+        },
+        {
+          "from": "ACC-1031",
+          "to": "ACC-1033",
+          "amount": 8565.53
+        },
+        {
+          "from": "ACC-1031",
+          "to": "ACC-1008",
+          "amount": 16291.99
+        },
+        {
+          "from": "ACC-1033",
+          "to": "ACC-1021",
+          "amount": 24583.85
+        },
+        {
+          "from": "ACC-1033",
+          "to": "ACC-1015",
+          "amount": 41299.3
+        },
+        {
+          "from": "ACC-1033",
+          "to": "ACC-1035",
+          "amount": 66362.06
+        },
+        {
+          "from": "ACC-1033",
+          "to": "ACC-1039",
+          "amount": 29018.18
+        },
+        {
+          "from": "ACC-1009",
+          "to": "ACC-1013",
+          "amount": 14936.07
+        },
+        {
+          "from": "ACC-1009",
+          "to": "ACC-1002",
+          "amount": 37782.16
+        },
+        {
+          "from": "ACC-1009",
+          "to": "ACC-1008",
+          "amount": 4798.26
+        },
+        {
+          "from": "ACC-1013",
+          "to": "ACC-1011",
+          "amount": 40068.39
+        },
+        {
+          "from": "ACC-1013",
+          "to": "ACC-1000",
+          "amount": 16733.18
+        },
+        {
+          "from": "ACC-1018",
+          "to": "ACC-1006",
+          "amount": 16854.35
+        },
+        {
+          "from": "ACC-1018",
+          "to": "ACC-1001",
+          "amount": 16953.34
+        },
+        {
+          "from": "ACC-1018",
+          "to": "ACC-1024",
+          "amount": 18609.54
+        },
+        {
+          "from": "ACC-1018",
+          "to": "ACC-1021",
+          "amount": 29671.15
+        },
+        {
+          "from": "ACC-1000",
+          "to": "ACC-1009",
+          "amount": 13280.03
+        },
+        {
+          "from": "ACC-1039",
+          "to": "ACC-1008",
+          "amount": 19192.23
+        },
+        {
+          "from": "ACC-1039",
+          "to": "ACC-1032",
+          "amount": 11192.96
+        },
+        {
+          "from": "ACC-1039",
+          "to": "ACC-1038",
+          "amount": 24186.49
+        }
+      ]
+    },
+    "recommendation": "Urgent human review; consider a temporary transaction hold only if an authorized reviewer approves.",
+    "status": "Human Decision Recorded",
+    "reviewer_decision": "Escalate for investigation",
+    "reviewer_comment": "Circular fund movement and rapid transfer of credited funds confirmed.\nCustomer verification and enhanced investigation are required before\nany consequential banking action.",
+    "created_at": "2026-07-29T16:02:37",
+    "audit": [
+      {
+        "time": "2026-07-29T16:02:37",
+        "actor": "FraudShield AI",
+        "event": "Analysis completed; recommendation created. No final banking action was executed."
+      },
+      {
+        "time": "2026-07-29T16:04:20",
+        "actor": "Authorized Reviewer",
+        "event": "Decision: Escalate for investigation. Comment: Circular fund movement and rapid transfer of credited funds confirmed.\nCustomer verification and enhanced investigation are required before\nany consequential banking action."
+      },
+      {
+        "time": "2026-07-29T16:04:26",
+        "actor": "Authorized Reviewer",
+        "event": "Decision: Escalate for investigation. Comment: Circular fund movement and rapid transfer of credited funds confirmed.\nCustomer verification and enhanced investigation are required before\nany consequential banking action."
+      },
+      {
+        "time": "2026-07-29T16:04:27",
+        "actor": "Authorized Reviewer",
+        "event": "Decision: Escalate for investigation. Comment: Circular fund movement and rapid transfer of credited funds confirmed.\nCustomer verification and enhanced investigation are required before\nany consequential banking action."
+      },
+      {
+        "time": "2026-07-29T16:04:28",
+        "actor": "Authorized Reviewer",
+        "event": "Decision: Escalate for investigation. Comment: Circular fund movement and rapid transfer of credited funds confirmed.\nCustomer verification and enhanced investigation are required before\nany consequential banking action."
+      },
+      {
+        "time": "2026-07-29T16:04:28",
+        "actor": "Authorized Reviewer",
+        "event": "Decision: Escalate for investigation. Comment: Circular fund movement and rapid transfer of credited funds confirmed.\nCustomer verification and enhanced investigation are required before\nany consequential banking action."
+      },
+      {
+        "time": "2026-07-29T16:04:29",
+        "actor": "Authorized Reviewer",
+        "event": "Decision: Escalate for investigation. Comment: Circular fund movement and rapid transfer of credited funds confirmed.\nCustomer verification and enhanced investigation are required before\nany consequential banking action."
+      },
+      {
+        "time": "2026-07-29T16:04:29",
+        "actor": "Authorized Reviewer",
+        "event": "Decision: Escalate for investigation. Comment: Circular fund movement and rapid transfer of credited funds confirmed.\nCustomer verification and enhanced investigation are required before\nany consequential banking action."
+      },
+      {
+        "time": "2026-07-29T16:04:29",
+        "actor": "Authorized Reviewer",
+        "event": "Decision: Escalate for investigation. Comment: Circular fund movement and rapid transfer of credited funds confirmed.\nCustomer verification and enhanced investigation are required before\nany consequential banking action."
+      },
+      {
+        "time": "2026-07-29T16:04:31",
+        "actor": "Authorized Reviewer",
+        "event": "Decision: Escalate for investigation. Comment: Circular fund movement and rapid transfer of credited funds confirmed.\nCustomer verification and enhanced investigation are required before\nany consequential banking action."
+      },
+      {
+        "time": "2026-07-29T16:04:32",
+        "actor": "Authorized Reviewer",
+        "event": "Decision: Escalate for investigation. Comment: Circular fund movement and rapid transfer of credited funds confirmed.\nCustomer verification and enhanced investigation are required before\nany consequential banking action."
+      },
+      {
+        "time": "2026-07-29T16:04:32",
+        "actor": "Authorized Reviewer",
+        "event": "Decision: Escalate for investigation. Comment: Circular fund movement and rapid transfer of credited funds confirmed.\nCustomer verification and enhanced investigation are required before\nany consequential banking action."
+      },
+      {
+        "time": "2026-07-29T16:04:33",
+        "actor": "Authorized Reviewer",
+        "event": "Decision: Escalate for investigation. Comment: Circular fund movement and rapid transfer of credited funds confirmed.\nCustomer verification and enhanced investigation are required before\nany consequential banking action."
+      },
+      {
+        "time": "2026-07-29T16:04:33",
+        "actor": "Authorized Reviewer",
+        "event": "Decision: Escalate for investigation. Comment: Circular fund movement and rapid transfer of credited funds confirmed.\nCustomer verification and enhanced investigation are required before\nany consequential banking action."
+      },
+      {
+        "time": "2026-07-29T16:04:34",
+        "actor": "Authorized Reviewer",
+        "event": "Decision: Escalate for investigation. Comment: Circular fund movement and rapid transfer of credited funds confirmed.\nCustomer verification and enhanced investigation are required before\nany consequential banking action."
+      },
+      {
+        "time": "2026-07-29T16:04:35",
+        "actor": "Authorized Reviewer",
+        "event": "Decision: Escalate for investigation. Comment: Circular fund movement and rapid transfer of credited funds confirmed.\nCustomer verification and enhanced investigation are required before\nany consequential banking action."
+      }
+    ]
+  },
+  {
+    "case_id": "FS-TXN-10043",
+    "transaction_id": "TXN-10043",
+    "customer_id": "CUS-2033",
+    "masked_account": "XXXX1033",
+    "amount": 24583.85,
+    "risk_score": 23,
+    "risk_level": "Low",
+    "rule_score": 0,
+    "anomaly_score": "3",
+    "network_score": 90,
+    "customer_risk_score": 45,
+    "reasons": [],
+    "graph": {
+      "cycles": [
+        [
+          "ACC-1007",
+          "ACC-1033",
+          "ACC-1039",
+          "ACC-1022"
+        ],
+        [
+          "ACC-1006",
+          "ACC-1014",
+          "ACC-1020",
+          "ACC-1033",
+          "ACC-1021"
+        ],
+        [
+          "ACC-1006",
+          "ACC-1036",
+          "ACC-1026",
+          "ACC-1033",
+          "ACC-1021"
+        ],
+        [
+          "ACC-1026",
+          "ACC-1033",
+          "ACC-1021",
+          "ACC-1031",
+          "ACC-1008"
+        ],
+        [
+          "ACC-1026",
+          "ACC-1033",
+          "ACC-1021",
+          "ACC-1009",
+          "ACC-1008"
+        ],
+        [
+          "ACC-1026",
+          "ACC-1033",
+          "ACC-1039",
+          "ACC-1008"
+        ],
+        [
+          "ACC-1026",
+          "ACC-1020",
+          "ACC-1033",
+          "ACC-1039",
+          "ACC-1008"
+        ],
+        [
+          "ACC-1021",
+          "ACC-1033"
+        ],
+        [
+          "ACC-1021",
+          "ACC-1033",
+          "ACC-1035",
+          "ACC-1018"
+        ],
+        [
+          "ACC-1021",
+          "ACC-1033",
+          "ACC-1039"
+        ],
+        [
+          "ACC-1021",
+          "ACC-1033",
+          "ACC-1039",
+          "ACC-1018"
+        ],
+        [
+          "ACC-1021",
+          "ACC-1014",
+          "ACC-1020",
+          "ACC-1033"
+        ],
+        [
+          "ACC-1021",
+          "ACC-1014",
+          "ACC-1020",
+          "ACC-1033",
+          "ACC-1039"
+        ],
+        [
+          "ACC-1021",
+          "ACC-1031",
+          "ACC-1033"
+        ],
+        [
+          "ACC-1021",
+          "ACC-1031",
+          "ACC-1033",
+          "ACC-1035",
+          "ACC-1018"
+        ],
+        [
+          "ACC-1021",
+          "ACC-1031",
+          "ACC-1033",
+          "ACC-1039"
+        ],
+        [
+          "ACC-1021",
+          "ACC-1031",
+          "ACC-1033",
+          "ACC-1039",
+          "ACC-1018"
+        ],
+        [
+          "ACC-1021",
+          "ACC-1001",
+          "ACC-1030",
+          "ACC-1019",
+          "ACC-1033"
+        ],
+        [
+          "ACC-1016",
+          "ACC-1035",
+          "ACC-1033",
+          "ACC-1015",
+          "ACC-1020"
+        ],
+        [
+          "ACC-1016",
+          "ACC-1035",
+          "ACC-1033",
+          "ACC-1039",
+          "ACC-1038"
+        ],
+        [
+          "ACC-1015",
+          "ACC-1010",
+          "ACC-1028",
+          "ACC-1031",
+          "ACC-1033"
+        ],
+        [
+          "ACC-1015",
+          "ACC-1020",
+          "ACC-1033"
+        ],
+        [
+          "ACC-1012",
+          "ACC-1031",
+          "ACC-1033",
+          "ACC-1035",
+          "ACC-1000"
+        ],
+        [
+          "ACC-1035",
+          "ACC-1033"
+        ],
+        [
+          "ACC-1017",
+          "ACC-1031",
+          "ACC-1033",
+          "ACC-1039",
+          "ACC-1032"
+        ],
+        [
+          "ACC-1033",
+          "ACC-1039",
+          "ACC-1022",
+          "ACC-1031"
+        ]
+      ],
+      "neighbors": [
+        "ACC-1007",
+        "ACC-1015",
+        "ACC-1019",
+        "ACC-1020",
+        "ACC-1021",
+        "ACC-1026",
+        "ACC-1031",
+        "ACC-1035",
+        "ACC-1039"
+      ],
+      "evidence": [
+        "Circular path detected: ACC-1007 \u2192 ACC-1033 \u2192 ACC-1039 \u2192 ACC-1022 \u2192 ACC-1007",
+        "Account is connected to 9 counterparties in the review window."
+      ],
+      "edges": [
+        {
+          "from": "ACC-1014",
+          "to": "ACC-1021",
+          "amount": 600000.0
+        },
+        {
+          "from": "ACC-1014",
+          "to": "ACC-1020",
+          "amount": 25313.44
+        },
+        {
+          "from": "ACC-1014",
+          "to": "ACC-1039",
+          "amount": 5317.93
+        },
+        {
+          "from": "ACC-1021",
+          "to": "ACC-1033",
+          "amount": 184000.0
+        },
+        {
+          "from": "ACC-1021",
+          "to": "ACC-1014",
+          "amount": 210000.0
+        },
+        {
+          "from": "ACC-1021",
+          "to": "ACC-1006",
+          "amount": 28951.44
+        },
+        {
+          "from": "ACC-1021",
+          "to": "ACC-1031",
+          "amount": 19220.72
+        },
+        {
+          "from": "ACC-1021",
+          "to": "ACC-1009",
+          "amount": 8717.22
+        },
+        {
+          "from": "ACC-1021",
+          "to": "ACC-1001",
+          "amount": 9113.97
+        },
+        {
+          "from": "ACC-1006",
+          "to": "ACC-1014",
+          "amount": 620000.0
+        },
+        {
+          "from": "ACC-1006",
+          "to": "ACC-1036",
+          "amount": 41697.8
+        },
+        {
+          "from": "ACC-1031",
+          "to": "ACC-1006",
+          "amount": 650000.0
+        },
+        {
+          "from": "ACC-1031",
+          "to": "ACC-1033",
+          "amount": 8565.53
+        },
+        {
+          "from": "ACC-1031",
+          "to": "ACC-1008",
+          "amount": 16291.99
+        },
+        {
+          "from": "ACC-1033",
+          "to": "ACC-1021",
+          "amount": 24583.85
+        },
+        {
+          "from": "ACC-1033",
+          "to": "ACC-1015",
+          "amount": 41299.3
+        },
+        {
+          "from": "ACC-1033",
+          "to": "ACC-1035",
+          "amount": 66362.06
+        },
+        {
+          "from": "ACC-1033",
+          "to": "ACC-1039",
+          "amount": 29018.18
+        },
+        {
+          "from": "ACC-1009",
+          "to": "ACC-1013",
+          "amount": 14936.07
+        },
+        {
+          "from": "ACC-1009",
+          "to": "ACC-1002",
+          "amount": 37782.16
+        },
+        {
+          "from": "ACC-1009",
+          "to": "ACC-1008",
+          "amount": 4798.26
+        },
+        {
+          "from": "ACC-1013",
+          "to": "ACC-1000",
+          "amount": 16733.18
+        },
+        {
+          "from": "ACC-1018",
+          "to": "ACC-1006",
+          "amount": 16854.35
+        },
+        {
+          "from": "ACC-1018",
+          "to": "ACC-1001",
+          "amount": 16953.34
+        },
+        {
+          "from": "ACC-1018",
+          "to": "ACC-1024",
+          "amount": 18609.54
+        },
+        {
+          "from": "ACC-1018",
+          "to": "ACC-1021",
+          "amount": 29671.15
+        },
+        {
+          "from": "ACC-1000",
+          "to": "ACC-1009",
+          "amount": 13280.03
+        },
+        {
+          "from": "ACC-1000",
+          "to": "ACC-1005",
+          "amount": 24703.36
+        },
+        {
+          "from": "ACC-1000",
+          "to": "ACC-1012",
+          "amount": 32125.82
+        },
+        {
+          "from": "ACC-1039",
+          "to": "ACC-1008",
+          "amount": 19192.23
+        }
+      ]
+    },
+    "recommendation": "Record the analysis and continue normal monitoring.",
+    "status": "Closed - Low Risk",
+    "reviewer_decision": "Pending",
+    "reviewer_comment": "",
+    "created_at": "2026-07-31T13:08:40",
+    "audit": [
+      {
+        "time": "2026-07-31T13:08:40",
+        "actor": "FraudShield AI",
+        "event": "Analysis completed; recommendation created. No final banking action was executed."
+      }
+    ]
+  },
+  {
+    "case_id": "FS-TXN-10259",
+    "transaction_id": "TXN-10259",
+    "customer_id": "CUS-2028",
+    "masked_account": "XXXX1028",
+    "amount": 8352.38,
+    "risk_score": 28,
+    "risk_level": "Low",
+    "rule_score": 0,
+    "anomaly_score": "12",
+    "network_score": 90,
+    "customer_risk_score": 75,
+    "reasons": [],
+    "graph": {
+      "cycles": [
+        [
+          "ACC-1008",
+          "ACC-1026",
+          "ACC-1015",
+          "ACC-1010",
+          "ACC-1028"
+        ],
+        [
+          "ACC-1008",
+          "ACC-1033",
+          "ACC-1015",
+          "ACC-1010",
+          "ACC-1028"
+        ],
+        [
+          "ACC-1031",
+          "ACC-1033",
+          "ACC-1015",
+          "ACC-1010",
+          "ACC-1028"
+        ],
+        [
+          "ACC-1037",
+          "ACC-1017",
+          "ACC-1025",
+          "ACC-1028"
+        ],
+        [
+          "ACC-1037",
+          "ACC-1024",
+          "ACC-1010",
+          "ACC-1028"
+        ]
+      ],
+      "neighbors": [
+        "ACC-1008",
+        "ACC-1010",
+        "ACC-1025",
+        "ACC-1031",
+        "ACC-1037"
+      ],
+      "evidence": [
+        "Circular path detected: ACC-1008 \u2192 ACC-1026 \u2192 ACC-1015 \u2192 ACC-1010 \u2192 ACC-1028 \u2192 ACC-1008",
+        "Account is connected to 5 counterparties in the review window."
+      ],
+      "edges": [
+        {
+          "from": "ACC-1021",
+          "to": "ACC-1033",
+          "amount": 184000.0
+        },
+        {
+          "from": "ACC-1021",
+          "to": "ACC-1031",
+          "amount": 19220.72
+        },
+        {
+          "from": "ACC-1031",
+          "to": "ACC-1006",
+          "amount": 650000.0
+        },
+        {
+          "from": "ACC-1031",
+          "to": "ACC-1033",
+          "amount": 8565.53
+        },
+        {
+          "from": "ACC-1031",
+          "to": "ACC-1008",
+          "amount": 16291.99
+        },
+        {
+          "from": "ACC-1033",
+          "to": "ACC-1021",
+          "amount": 24583.85
+        },
+        {
+          "from": "ACC-1033",
+          "to": "ACC-1015",
+          "amount": 41299.3
+        },
+        {
+          "from": "ACC-1033",
+          "to": "ACC-1035",
+          "amount": 66362.06
+        },
+        {
+          "from": "ACC-1033",
+          "to": "ACC-1039",
+          "amount": 29018.18
+        },
+        {
+          "from": "ACC-1009",
+          "to": "ACC-1008",
+          "amount": 4798.26
+        },
+        {
+          "from": "ACC-1018",
+          "to": "ACC-1024",
+          "amount": 18609.54
+        },
+        {
+          "from": "ACC-1039",
+          "to": "ACC-1008",
+          "amount": 19192.23
+        },
+        {
+          "from": "ACC-1008",
+          "to": "ACC-1006",
+          "amount": 7127.52
+        },
+        {
+          "from": "ACC-1008",
+          "to": "ACC-1026",
+          "amount": 8049.47
+        },
+        {
+          "from": "ACC-1008",
+          "to": "ACC-1033",
+          "amount": 29461.71
+        },
+        {
+          "from": "ACC-1035",
+          "to": "ACC-1033",
+          "amount": 58505.12
+        },
+        {
+          "from": "ACC-1022",
+          "to": "ACC-1037",
+          "amount": 15543.5
+        },
+        {
+          "from": "ACC-1022",
+          "to": "ACC-1031",
+          "amount": 8476.01
+        },
+        {
+          "from": "ACC-1007",
+          "to": "ACC-1010",
+          "amount": 25716.05
+        },
+        {
+          "from": "ACC-1007",
+          "to": "ACC-1025",
+          "amount": 13329.82
+        },
+        {
+          "from": "ACC-1007",
+          "to": "ACC-1033",
+          "amount": 49655.95
+        },
+        {
+          "from": "ACC-1037",
+          "to": "ACC-1017",
+          "amount": 43716.4
+        },
+        {
+          "from": "ACC-1037",
+          "to": "ACC-1024",
+          "amount": 15488.67
+        },
+        {
+          "from": "ACC-1017",
+          "to": "ACC-1016",
+          "amount": 6514.51
+        },
+        {
+          "from": "ACC-1017",
+          "to": "ACC-1031",
+          "amount": 13316.65
+        },
+        {
+          "from": "ACC-1017",
+          "to": "ACC-1025",
+          "amount": 12722.5
+        },
+        {
+          "from": "ACC-1036",
+          "to": "ACC-1026",
+          "amount": 22869.62
+        },
+        {
+          "from": "ACC-1032",
+          "to": "ACC-1017",
+          "amount": 12052.49
+        },
+        {
+          "from": "ACC-1028",
+          "to": "ACC-1037",
+          "amount": 11283.85
+        },
+        {
+          "from": "ACC-1028",
+          "to": "ACC-1031",
+          "amount": 21761.62
+        }
+      ]
+    },
+    "recommendation": "Record the analysis and continue normal monitoring.",
+    "status": "Closed - Low Risk",
+    "reviewer_decision": "Pending",
+    "reviewer_comment": "",
+    "created_at": "2026-08-07T16:05:09",
+    "audit": [
+      {
+        "time": "2026-08-07T16:05:09",
+        "actor": "FraudShield AI",
+        "event": "Analysis completed; recommendation created. No final banking action was executed."
+      }
+    ]
+  },
+  {
+    "case_id": "FS-TXN-CRIT-004",
+    "transaction_id": "TXN-CRIT-004",
+    "customer_id": "CUS-2021",
+    "masked_account": "XXXX1021",
+    "amount": 184000.0,
+    "risk_score": 68,
+    "risk_level": "High",
+    "rule_score": 65,
+    "anomaly_score": "55",
+    "network_score": 90,
+    "customer_risk_score": 75,
+    "reasons": [
+      {
+        "rule": "R1 Transaction spike",
+        "points": 25,
+        "evidence": "Amount is 4.6x the customer's historical average."
+      },
+      {
+        "rule": "R3 Velocity spike",
+        "points": 15,
+        "evidence": "6 transactions observed in the 24-hour review window."
+      },
+      {
+        "rule": "R4 Rapid fund movement",
+        "points": 25,
+        "evidence": "Outgoing value equals 640% of the analyzed credit in the review window."
+      }
+    ],
+    "graph": {
+      "cycles": [
+        [
+          "ACC-1008",
+          "ACC-1006",
+          "ACC-1014",
+          "ACC-1021",
+          "ACC-1031"
+        ],
+        [
+          "ACC-1008",
+          "ACC-1006",
+          "ACC-1014",
+          "ACC-1021",
+          "ACC-1009"
+        ],
+        [
+          "ACC-1039",
+          "ACC-1021",
+          "ACC-1033"
+        ],
+        [
+          "ACC-1039",
+          "ACC-1021",
+          "ACC-1014",
+          "ACC-1020",
+          "ACC-1033"
+        ],
+        [
+          "ACC-1039",
+          "ACC-1021",
+          "ACC-1031",
+          "ACC-1033"
+        ],
+        [
+          "ACC-1039",
+          "ACC-1021",
+          "ACC-1009",
+          "ACC-1013",
+          "ACC-1011"
+        ],
+        [
+          "ACC-1039",
+          "ACC-1018",
+          "ACC-1021",
+          "ACC-1033"
+        ],
+        [
+          "ACC-1039",
+          "ACC-1018",
+          "ACC-1021",
+          "ACC-1031",
+          "ACC-1033"
+        ],
+        [
+          "ACC-1018",
+          "ACC-1021",
+          "ACC-1033",
+          "ACC-1035"
+        ],
+        [
+          "ACC-1018",
+          "ACC-1021",
+          "ACC-1031",
+          "ACC-1033",
+          "ACC-1035"
+        ],
+        [
+          "ACC-1036",
+          "ACC-1026",
+          "ACC-1033",
+          "ACC-1021",
+          "ACC-1006"
+        ],
+        [
+          "ACC-1031",
+          "ACC-1006",
+          "ACC-1014",
+          "ACC-1021"
+        ],
+        [
+          "ACC-1031",
+          "ACC-1033",
+          "ACC-1021"
+        ],
+        [
+          "ACC-1006",
+          "ACC-1014",
+          "ACC-1021"
+        ],
+        [
+          "ACC-1006",
+          "ACC-1014",
+          "ACC-1020",
+          "ACC-1033",
+          "ACC-1021"
+        ],
+        [
+          "ACC-1014",
+          "ACC-1021"
+        ],
+        [
+          "ACC-1014",
+          "ACC-1020",
+          "ACC-1033",
+          "ACC-1021"
+        ],
+        [
+          "ACC-1021",
+          "ACC-1033"
+        ]
+      ],
+      "neighbors": [
+        "ACC-1001",
+        "ACC-1006",
+        "ACC-1009",
+        "ACC-1014",
+        "ACC-1018",
+        "ACC-1031",
+        "ACC-1033",
+        "ACC-1039"
+      ],
+      "evidence": [
+        "Circular path detected: ACC-1008 \u2192 ACC-1006 \u2192 ACC-1014 \u2192 ACC-1021 \u2192 ACC-1031 \u2192 ACC-1008",
+        "Account is connected to 8 counterparties in the review window."
+      ],
+      "edges": [
+        {
+          "from": "ACC-1014",
+          "to": "ACC-1021",
+          "amount": 600000.0
+        },
+        {
+          "from": "ACC-1014",
+          "to": "ACC-1020",
+          "amount": 25313.44
+        },
+        {
+          "from": "ACC-1021",
+          "to": "ACC-1033",
+          "amount": 184000.0
+        },
+        {
+          "from": "ACC-1021",
+          "to": "ACC-1014",
+          "amount": 210000.0
+        },
+        {
+          "from": "ACC-1021",
+          "to": "ACC-1006",
+          "amount": 28951.44
+        },
+        {
+          "from": "ACC-1021",
+          "to": "ACC-1031",
+          "amount": 19220.72
+        },
+        {
+          "from": "ACC-1021",
+          "to": "ACC-1009",
+          "amount": 8717.22
+        },
+        {
+          "from": "ACC-1021",
+          "to": "ACC-1001",
+          "amount": 9113.97
+        },
+        {
+          "from": "ACC-1006",
+          "to": "ACC-1014",
+          "amount": 620000.0
+        },
+        {
+          "from": "ACC-1006",
+          "to": "ACC-1036",
+          "amount": 41697.8
+        },
+        {
+          "from": "ACC-1031",
+          "to": "ACC-1006",
+          "amount": 650000.0
+        },
+        {
+          "from": "ACC-1031",
+          "to": "ACC-1033",
+          "amount": 8565.53
+        },
+        {
+          "from": "ACC-1031",
+          "to": "ACC-1008",
+          "amount": 16291.99
+        },
+        {
+          "from": "ACC-1033",
+          "to": "ACC-1021",
+          "amount": 24583.85
+        },
+        {
+          "from": "ACC-1033",
+          "to": "ACC-1015",
+          "amount": 41299.3
+        },
+        {
+          "from": "ACC-1033",
+          "to": "ACC-1035",
+          "amount": 66362.06
+        },
+        {
+          "from": "ACC-1033",
+          "to": "ACC-1039",
+          "amount": 29018.18
+        },
+        {
+          "from": "ACC-1009",
+          "to": "ACC-1013",
+          "amount": 14936.07
+        },
+        {
+          "from": "ACC-1009",
+          "to": "ACC-1002",
+          "amount": 37782.16
+        },
+        {
+          "from": "ACC-1009",
+          "to": "ACC-1008",
+          "amount": 4798.26
+        },
+        {
+          "from": "ACC-1013",
+          "to": "ACC-1011",
+          "amount": 40068.39
+        },
+        {
+          "from": "ACC-1013",
+          "to": "ACC-1000",
+          "amount": 16733.18
+        },
+        {
+          "from": "ACC-1018",
+          "to": "ACC-1006",
+          "amount": 16854.35
+        },
+        {
+          "from": "ACC-1018",
+          "to": "ACC-1001",
+          "amount": 16953.34
+        },
+        {
+          "from": "ACC-1018",
+          "to": "ACC-1024",
+          "amount": 18609.54
+        },
+        {
+          "from": "ACC-1018",
+          "to": "ACC-1021",
+          "amount": 29671.15
+        },
+        {
+          "from": "ACC-1000",
+          "to": "ACC-1009",
+          "amount": 13280.03
+        },
+        {
+          "from": "ACC-1039",
+          "to": "ACC-1008",
+          "amount": 19192.23
+        },
+        {
+          "from": "ACC-1039",
+          "to": "ACC-1032",
+          "amount": 11192.96
+        },
+        {
+          "from": "ACC-1039",
+          "to": "ACC-1038",
+          "amount": 24186.49
+        }
+      ]
+    },
+    "recommendation": "Request customer verification and perform enhanced due diligence.",
+    "status": "Awaiting Human Review",
+    "reviewer_decision": "Pending",
+    "reviewer_comment": "",
+    "created_at": "2026-08-07T16:05:27",
+    "audit": [
+      {
+        "time": "2026-08-07T16:05:27",
+        "actor": "FraudShield AI",
+        "event": "Analysis completed; recommendation created. No final banking action was executed."
+      }
+    ]
+  },
+  {
+    "case_id": "FS-TXN-CRIT-003",
+    "transaction_id": "TXN-CRIT-003",
+    "customer_id": "CUS-2021",
+    "masked_account": "XXXX1021",
+    "amount": 210000.0,
+    "risk_score": 69,
+    "risk_level": "High",
+    "rule_score": 65,
+    "anomaly_score": "58",
+    "network_score": 90,
+    "customer_risk_score": 75,
+    "reasons": [
+      {
+        "rule": "R1 Transaction spike",
+        "points": 25,
+        "evidence": "Amount is 5.2x the customer's historical average."
+      },
+      {
+        "rule": "R3 Velocity spike",
+        "points": 15,
+        "evidence": "6 transactions observed in the 24-hour review window."
+      },
+      {
+        "rule": "R4 Rapid fund movement",
+        "points": 25,
+        "evidence": "Outgoing value equals 548% of the analyzed credit in the review window."
+      }
+    ],
+    "graph": {
+      "cycles": [
+        [
+          "ACC-1008",
+          "ACC-1006",
+          "ACC-1014",
+          "ACC-1021",
+          "ACC-1031"
+        ],
+        [
+          "ACC-1008",
+          "ACC-1006",
+          "ACC-1014",
+          "ACC-1021",
+          "ACC-1009"
+        ],
+        [
+          "ACC-1039",
+          "ACC-1021",
+          "ACC-1033"
+        ],
+        [
+          "ACC-1039",
+          "ACC-1021",
+          "ACC-1014",
+          "ACC-1020",
+          "ACC-1033"
+        ],
+        [
+          "ACC-1039",
+          "ACC-1021",
+          "ACC-1031",
+          "ACC-1033"
+        ],
+        [
+          "ACC-1039",
+          "ACC-1021",
+          "ACC-1009",
+          "ACC-1013",
+          "ACC-1011"
+        ],
+        [
+          "ACC-1039",
+          "ACC-1018",
+          "ACC-1021",
+          "ACC-1033"
+        ],
+        [
+          "ACC-1039",
+          "ACC-1018",
+          "ACC-1021",
+          "ACC-1031",
+          "ACC-1033"
+        ],
+        [
+          "ACC-1018",
+          "ACC-1021",
+          "ACC-1033",
+          "ACC-1035"
+        ],
+        [
+          "ACC-1018",
+          "ACC-1021",
+          "ACC-1031",
+          "ACC-1033",
+          "ACC-1035"
+        ],
+        [
+          "ACC-1036",
+          "ACC-1026",
+          "ACC-1033",
+          "ACC-1021",
+          "ACC-1006"
+        ],
+        [
+          "ACC-1031",
+          "ACC-1006",
+          "ACC-1014",
+          "ACC-1021"
+        ],
+        [
+          "ACC-1031",
+          "ACC-1033",
+          "ACC-1021"
+        ],
+        [
+          "ACC-1006",
+          "ACC-1014",
+          "ACC-1021"
+        ],
+        [
+          "ACC-1006",
+          "ACC-1014",
+          "ACC-1020",
+          "ACC-1033",
+          "ACC-1021"
+        ],
+        [
+          "ACC-1014",
+          "ACC-1021"
+        ],
+        [
+          "ACC-1014",
+          "ACC-1020",
+          "ACC-1033",
+          "ACC-1021"
+        ],
+        [
+          "ACC-1021",
+          "ACC-1033"
+        ]
+      ],
+      "neighbors": [
+        "ACC-1001",
+        "ACC-1006",
+        "ACC-1009",
+        "ACC-1014",
+        "ACC-1018",
+        "ACC-1031",
+        "ACC-1033",
+        "ACC-1039"
+      ],
+      "evidence": [
+        "Circular path detected: ACC-1008 \u2192 ACC-1006 \u2192 ACC-1014 \u2192 ACC-1021 \u2192 ACC-1031 \u2192 ACC-1008",
+        "Account is connected to 8 counterparties in the review window."
+      ],
+      "edges": [
+        {
+          "from": "ACC-1014",
+          "to": "ACC-1021",
+          "amount": 600000.0
+        },
+        {
+          "from": "ACC-1014",
+          "to": "ACC-1020",
+          "amount": 25313.44
+        },
+        {
+          "from": "ACC-1021",
+          "to": "ACC-1033",
+          "amount": 184000.0
+        },
+        {
+          "from": "ACC-1021",
+          "to": "ACC-1014",
+          "amount": 210000.0
+        },
+        {
+          "from": "ACC-1021",
+          "to": "ACC-1006",
+          "amount": 28951.44
+        },
+        {
+          "from": "ACC-1021",
+          "to": "ACC-1031",
+          "amount": 19220.72
+        },
+        {
+          "from": "ACC-1021",
+          "to": "ACC-1009",
+          "amount": 8717.22
+        },
+        {
+          "from": "ACC-1021",
+          "to": "ACC-1001",
+          "amount": 9113.97
+        },
+        {
+          "from": "ACC-1006",
+          "to": "ACC-1014",
+          "amount": 620000.0
+        },
+        {
+          "from": "ACC-1006",
+          "to": "ACC-1036",
+          "amount": 41697.8
+        },
+        {
+          "from": "ACC-1031",
+          "to": "ACC-1006",
+          "amount": 650000.0
+        },
+        {
+          "from": "ACC-1031",
+          "to": "ACC-1033",
+          "amount": 8565.53
+        },
+        {
+          "from": "ACC-1031",
+          "to": "ACC-1008",
+          "amount": 16291.99
+        },
+        {
+          "from": "ACC-1033",
+          "to": "ACC-1021",
+          "amount": 24583.85
+        },
+        {
+          "from": "ACC-1033",
+          "to": "ACC-1015",
+          "amount": 41299.3
+        },
+        {
+          "from": "ACC-1033",
+          "to": "ACC-1035",
+          "amount": 66362.06
+        },
+        {
+          "from": "ACC-1033",
+          "to": "ACC-1039",
+          "amount": 29018.18
+        },
+        {
+          "from": "ACC-1009",
+          "to": "ACC-1013",
+          "amount": 14936.07
+        },
+        {
+          "from": "ACC-1009",
+          "to": "ACC-1002",
+          "amount": 37782.16
+        },
+        {
+          "from": "ACC-1009",
+          "to": "ACC-1008",
+          "amount": 4798.26
+        },
+        {
+          "from": "ACC-1013",
+          "to": "ACC-1011",
+          "amount": 40068.39
+        },
+        {
+          "from": "ACC-1013",
+          "to": "ACC-1000",
+          "amount": 16733.18
+        },
+        {
+          "from": "ACC-1018",
+          "to": "ACC-1006",
+          "amount": 16854.35
+        },
+        {
+          "from": "ACC-1018",
+          "to": "ACC-1001",
+          "amount": 16953.34
+        },
+        {
+          "from": "ACC-1018",
+          "to": "ACC-1024",
+          "amount": 18609.54
+        },
+        {
+          "from": "ACC-1018",
+          "to": "ACC-1021",
+          "amount": 29671.15
+        },
+        {
+          "from": "ACC-1000",
+          "to": "ACC-1009",
+          "amount": 13280.03
+        },
+        {
+          "from": "ACC-1039",
+          "to": "ACC-1008",
+          "amount": 19192.23
+        },
+        {
+          "from": "ACC-1039",
+          "to": "ACC-1032",
+          "amount": 11192.96
+        },
+        {
+          "from": "ACC-1039",
+          "to": "ACC-1038",
+          "amount": 24186.49
+        }
+      ]
+    },
+    "recommendation": "Request customer verification and perform enhanced due diligence.",
+    "status": "Human Decision Recorded",
+    "reviewer_decision": "Escalate for investigation",
+    "reviewer_comment": "This is looking like a fraud case",
+    "created_at": "2026-08-07T16:07:46",
+    "audit": [
+      {
+        "time": "2026-08-07T16:07:46",
+        "actor": "FraudShield AI",
+        "event": "Analysis completed; recommendation created. No final banking action was executed."
+      },
+      {
+        "time": "2026-08-07T16:10:22",
+        "actor": "Authorized Reviewer",
+        "event": "Decision: Escalate for investigation. Comment: This is looking like a fraud case"
+      }
+    ]
+  }
+]

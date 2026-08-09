@@ -4,7 +4,7 @@
 ## Quick Start (with Docker)Clone this repository:
 
 1. ```bash
-   git clone https://github.com/yourusername/fraudshield.git
+   git clone https://github.com/csabhayy/fraudshield.git
    cd fraudshield
    ```
 2. Start all services:

@@ -63,54 +63,60 @@ class GraphErrorBoundary extends React.Component<GraphErrorBoundaryProps, GraphE
   }
 }
 
-// ---------- Agent Steps (full) ----------
+// ---------- Agent Steps (full data for hover card) ----------
 const AGENT_STEPS = [
   {
     id: 'data_retriever',
     label: 'Data Retriever',
     description: 'Retrieves the transaction and customer\'s historical activity.',
-    details:
-      'Purpose: Provides the investigation with the baseline transaction context required by downstream agents.\nInput: Transaction ID + Customer ID\nOutput: Transaction history, account activity and behavioral context.',
+    purpose: 'Provides the investigation with the baseline transaction context required by downstream agents.',
+    input: 'Transaction ID + Customer ID',
+    output: 'Transaction history, account activity and behavioral context.',
     useCase: 'Fetches all relevant data for the investigation.',
   },
   {
     id: 'graph_analyst',
     label: 'Graph Analyst',
     description: 'Queries Neo4j for cycles and connections.',
-    details:
-      'Purpose: Discovers relationships between accounts, detects circular flows and shared devices.\nInput: Source account\nOutput: Cycles, neighbors, shared devices, edge weights.',
+    purpose: 'Discovers relationships between accounts, detects circular flows and shared devices.',
+    input: 'Source account',
+    output: 'Cycles, neighbors, shared devices, edge weights.',
     useCase: 'Reveals hidden network structures and mule patterns.',
   },
   {
     id: 'rule_engine',
     label: 'Rule Engine',
     description: 'Applies deterministic fraud rules.',
-    details:
-      'Purpose: Evaluates the transaction against a set of expert-defined rules (R, M, S, A, G).\nInput: Transaction + customer profile + graph results\nOutput: Risk score (0–100), list of triggered rules with evidence.',
+    purpose: 'Evaluates the transaction against a set of expert-defined rules (R, M, S, A, G).',
+    input: 'Transaction + customer profile + graph results',
+    output: 'Risk score (0–100), list of triggered rules with evidence.',
     useCase: 'Provides explainable, consistent risk assessment.',
   },
   {
     id: 'anomaly_detector',
     label: 'Anomaly Detector',
     description: 'Runs Isolation Forest for outliers.',
-    details:
-      'Purpose: Unsupervised detection of unusual transaction patterns.\nInput: Transaction features (amount, frequency, location, etc.)\nOutput: Anomaly score (0–100).',
+    purpose: 'Unsupervised detection of unusual transaction patterns.',
+    input: 'Transaction features (amount, frequency, location, etc.)',
+    output: 'Anomaly score (0–100).',
     useCase: 'Catches novel fraud patterns not covered by rules.',
   },
   {
     id: 'rag_retriever',
     label: 'RAG Retriever',
     description: 'Searches similar past cases.',
-    details:
-      'Purpose: Retrieves similar historical cases to assist the reviewer and ensure consistency.\nInput: Current case embedding\nOutput: List of similar cases (if any) with similarity score.',
+    purpose: 'Retrieves similar historical cases to assist the reviewer and ensure consistency.',
+    input: 'Current case embedding',
+    output: 'List of similar cases (if any) with similarity score.',
     useCase: 'Provides precedent and helps decision-making.',
   },
   {
     id: 'report_generator',
     label: 'Report Generator',
     description: 'Generates AI narrative.',
-    details:
-      'Purpose: Synthesizes findings into a human‑readable investigation summary.\nInput: All previous outputs\nOutput: Natural‑language narrative and final recommendation.',
+    purpose: 'Synthesizes findings into a human‑readable investigation summary.',
+    input: 'All previous outputs',
+    output: 'Natural‑language narrative and final recommendation.',
     useCase: 'Explains the investigation in plain English.',
   },
 ];
@@ -134,7 +140,6 @@ const InvestigationPage: React.FC = () => {
     links: [],
   });
   const [highlightedPath, setHighlightedPath] = useState<string[]>([]);
-  const [expandedAgent, setExpandedAgent] = useState<string | null>(null);
   const [aiOrbExpanded, setAiOrbExpanded] = useState(false);
   const [aiChatInput, setAiChatInput] = useState('');
   const [aiResponse, setAiResponse] = useState('');
@@ -145,7 +150,13 @@ const InvestigationPage: React.FC = () => {
   );
   const [stageDurations, setStageDurations] = useState<Record<string, number>>({});
 
-  // Keep hook order stable across loading/error/success renders.
+  // ---- Hover card state ----
+  const [hoveredAgent, setHoveredAgent] = useState<typeof AGENT_STEPS[0] | null>(null);
+  const [cardPosition, setCardPosition] = useState<{ x: number; y: number } | null>(null);
+  const hideTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stepRefs = useRef<{ [key: string]: HTMLDivElement | null }>({});
+
+  // ---- Keep hook order stable ----
   const orbSpring = useSpring({
     from: { transform: 'translateY(0px) scale(1)' },
     to: async (next) => {
@@ -289,7 +300,6 @@ const InvestigationPage: React.FC = () => {
     if (accounts.length > 0) {
       setHighlightedPath(accounts);
       if (graphRef.current) {
-        // centerAtNode is not part of ForceGraph2D API; keep focus behavior safe.
         graphRef.current.centerAt(0, 0, 500);
         graphRef.current.zoom(2, 500);
       }
@@ -300,6 +310,56 @@ const InvestigationPage: React.FC = () => {
   // ---- Handle back navigation ----
   const handleBack = () => {
     navigate('/');
+  };
+
+  // ---- Hover card handlers ----
+  const handleAgentHover = (agent: typeof AGENT_STEPS[0], element: HTMLDivElement) => {
+    if (hideTimeoutRef.current) {
+      clearTimeout(hideTimeoutRef.current);
+      hideTimeoutRef.current = null;
+    }
+
+    const rect = element.getBoundingClientRect();
+    const cardWidth = 320;
+    const cardHeight = 260;
+
+    let x = rect.right + 16;
+    let y = rect.top;
+
+    // If card goes off the right edge, place it to the left
+    if (x + cardWidth > window.innerWidth) {
+      x = rect.left - cardWidth - 16;
+    }
+
+    // Adjust vertical position to avoid clipping
+    if (y + cardHeight > window.innerHeight) {
+      y = window.innerHeight - cardHeight - 20;
+    }
+    if (y < 20) y = 20;
+
+    setCardPosition({ x, y });
+    setHoveredAgent(agent);
+  };
+
+  const handleAgentLeave = () => {
+    hideTimeoutRef.current = setTimeout(() => {
+      setHoveredAgent(null);
+      setCardPosition(null);
+    }, 200);
+  };
+
+  const handleCardEnter = () => {
+    if (hideTimeoutRef.current) {
+      clearTimeout(hideTimeoutRef.current);
+      hideTimeoutRef.current = null;
+    }
+  };
+
+  const handleCardLeave = () => {
+    hideTimeoutRef.current = setTimeout(() => {
+      setHoveredAgent(null);
+      setCardPosition(null);
+    }, 200);
   };
 
   // ---- Loading State ----
@@ -315,7 +375,7 @@ const InvestigationPage: React.FC = () => {
     );
   }
 
-  // ---- Error State (API or local) ----
+  // ---- Error State ----
   if (investigationError || localError) {
     return (
       <div className="min-h-screen bg-[#F8F8F6] p-8 flex items-center justify-center">
@@ -345,7 +405,7 @@ const InvestigationPage: React.FC = () => {
     );
   }
 
-  // ---- Safe destructuring with defaults ----
+  // ---- Safe destructuring ----
   const {
     risk_score = 0,
     risk_level = 'Unknown',
@@ -415,7 +475,7 @@ const InvestigationPage: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Column: Graph + Timeline */}
           <div className="lg:col-span-2 space-y-6">
-            {/* Transaction Network Graph */}
+            {/* Graph */}
             <div className="bg-white border border-[#4A4A4A] rounded-md p-4 shadow-sm relative overflow-hidden">
               <h3 className="font-serif font-bold text-[#242424] mb-3">Transaction Network</h3>
               <div className="h-80 w-full relative">
@@ -455,8 +515,8 @@ const InvestigationPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Investigation Timeline */}
-            <div className="bg-white border border-[#4A4A4A] rounded-md p-4 shadow-sm">
+            {/* Investigation Timeline – with hover cards */}
+            <div className="bg-white border border-[#4A4A4A] rounded-md p-4 shadow-sm relative">
               <h3 className="font-serif font-bold text-[#242424] mb-3">Investigation Timeline</h3>
               <div className="space-y-3">
                 {AGENT_STEPS.map((step) => {
@@ -470,8 +530,15 @@ const InvestigationPage: React.FC = () => {
                     <div
                       key={step.id}
                       className="flex items-start space-x-3 relative group"
-                      onMouseEnter={() => setExpandedAgent(step.id)}
-                      onMouseLeave={() => setExpandedAgent(null)}
+                      ref={(el) => {
+                        stepRefs.current[step.id] = el;
+                      }}
+                      onMouseEnter={() => {
+                        if (stepRefs.current[step.id]) {
+                          handleAgentHover(step, stepRefs.current[step.id]!);
+                        }
+                      }}
+                      onMouseLeave={handleAgentLeave}
                     >
                       <div
                         className={`w-3 h-3 rounded-full mt-1 flex-shrink-0 ${
@@ -490,25 +557,44 @@ const InvestigationPage: React.FC = () => {
                           )}
                         </div>
                         <div className="text-sm text-gray-500">{step.description}</div>
-                        {expandedAgent === step.id && (
-                          <div className="mt-2 p-3 bg-gray-50 border border-gray-200 rounded-md text-xs text-gray-700 max-w-md">
-                            {step.details.split('\n').map((line, i) => (
-                              <div key={i}>{line}</div>
-                            ))}
-                            <div className="mt-1 text-gray-500">Use case: {step.useCase}</div>
-                          </div>
-                        )}
                       </div>
                     </div>
                   );
                 })}
               </div>
+
+              {/* Floating Hover Card */}
+              {hoveredAgent && cardPosition && (
+                <div
+                  className="fixed z-50 w-80 bg-white border border-[#4A4A4A] rounded-md shadow-lg p-4 transition-all duration-200 ease-out"
+                  style={{
+                    left: cardPosition.x,
+                    top: cardPosition.y,
+                    opacity: 1,
+                    transform: 'translateY(0) scale(1)',
+                    pointerEvents: 'auto',
+                  }}
+                  onMouseEnter={handleCardEnter}
+                  onMouseLeave={handleCardLeave}
+                >
+                  {/* Small arrow pointer */}
+                  <div
+                    className="absolute -left-2 top-4 w-3 h-3 bg-white border-l border-b border-[#4A4A4A] transform rotate-45"
+                  />
+                  <h4 className="font-serif font-bold text-[#242424] text-sm mb-2">{hoveredAgent.label}</h4>
+                  <div className="space-y-1 text-xs text-gray-700">
+                    <div><span className="font-medium">Purpose:</span> {hoveredAgent.purpose}</div>
+                    <div><span className="font-medium">Input:</span> {hoveredAgent.input}</div>
+                    <div><span className="font-medium">Output:</span> {hoveredAgent.output}</div>
+                    <div><span className="font-medium">Use case:</span> {hoveredAgent.useCase}</div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
           {/* Right Column: Risk Signals + Similar Cases */}
           <div className="space-y-6">
-            {/* Risk Signals */}
             <div className="bg-white border border-[#4A4A4A] rounded-md p-4 shadow-sm">
               <h3 className="font-serif font-bold text-[#242424] mb-3">Risk Signals</h3>
               <div className="space-y-2">
@@ -532,7 +618,6 @@ const InvestigationPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Similar Historical Cases */}
             <div className="bg-white border border-[#4A4A4A] rounded-md p-4 shadow-sm">
               <h3 className="font-serif font-bold text-[#242424] mb-3">Similar Historical Cases</h3>
               {similar_cases && similar_cases.length > 0 ? (
@@ -579,7 +664,7 @@ const InvestigationPage: React.FC = () => {
           </div>
         </animated.div>
 
-        {/* AI Chat Panel (expanded) */}
+        {/* AI Chat Panel */}
         {aiOrbExpanded && (
           <div className="fixed bottom-28 right-8 w-96 bg-white border border-[#4A4A4A] rounded-lg shadow-xl z-50 flex flex-col max-h-[500px]">
             <div className="flex justify-between items-center p-3 border-b border-[#4A4A4A]">

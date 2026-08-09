@@ -2,6 +2,7 @@ import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { Activity } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 interface Tx {
   id: string;
@@ -14,6 +15,7 @@ interface Tx {
 }
 
 const RecentTransactions: React.FC = () => {
+  const navigate = useNavigate();
   const { data, isLoading, error } = useQuery({
     queryKey: ['recentTx'],
     queryFn: async () => {
@@ -22,6 +24,10 @@ const RecentTransactions: React.FC = () => {
     },
     refetchInterval: 5000,
   });
+
+  const handleRowClick = (txId: string) => {
+    navigate(`/investigation/${txId}`);
+  };
 
   if (isLoading) return <div className="text-gray-500 text-sm">Loading live feed...</div>;
   if (error) return <div className="text-red-500 text-sm">Failed to load feed.</div>;
@@ -47,7 +53,11 @@ const RecentTransactions: React.FC = () => {
           </thead>
           <tbody>
             {data.map((tx) => (
-              <tr key={tx.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+              <tr
+                key={tx.id}
+                className="border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer"
+                onClick={() => handleRowClick(tx.id)}
+              >
                 <td className="py-1.5 pr-2 font-medium">₹{tx.amount.toLocaleString()}</td>
                 <td className="py-1.5 pr-2 text-gray-700">{tx.channel}</td>
                 <td className="py-1.5 pr-2 text-gray-700">{tx.location}</td>

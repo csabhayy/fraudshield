@@ -81,54 +81,84 @@ class ChatRequest(BaseModel):
 # ------- Endpoints -------
 @app.post("/investigate")
 async def investigate(req: InvestigateRequest):
-    df = load_transactions()
-    if req.transaction_id not in df["transaction_id"].values:
-        raise HTTPException(404, "Transaction not found")
+    import traceback
+    import pandas as pd
+    from services.data_service import load_transactions, save_case, convert_numpy
+    from agents.workflow import build_investigation_workflow
+    from datetime import datetime
 
-    state = {
-        "transaction_id": req.transaction_id,
-        "case_id": f"FS-{req.transaction_id}",
-        "created_at": datetime.now().isoformat()
-    }
-    result_state = investigation_workflow.invoke(state)
-    tx = result_state["transaction"]
-    graph = result_state.get("graph_result", {})
-    similar = result_state.get("similar_cases", [])
+    try:
+        # 1. Load transactions from SQLite (includes live data)
+        df = load_transactions()
+        if req.transaction_id not in df["transaction_id"].values:
+            raise HTTPException(404, "Transaction not found")
 
-    final = {
-        "case_id": result_state["case_id"],
-        "transaction_id": tx["transaction_id"],
-        "customer_id": tx["customer_id"],
-        "masked_account": "XXXX" + tx["source_account"][-4:],
-        "amount": float(tx["amount"]),
-        "risk_score": int(result_state["rule_score"]),
-        "risk_level": "Critical" if result_state["rule_score"] >= 86 else
-                      "Very High" if result_state["rule_score"] >= 71 else
-                      "High" if result_state["rule_score"] >= 51 else
-                      "Medium" if result_state["rule_score"] >= 31 else "Low",
-        "rule_score": int(result_state["rule_score"]),
-        "anomaly_score": int(result_state.get("anomaly_score", 0)),
-        "network_score": 0,
-        "customer_risk_score": 0,
-        "reasons": result_state.get("reasons", []),
-        "graph": {
-            "cycles": graph.get("cycles", []),
-            "neighbors": graph.get("neighbors", []),
-            "evidence": graph.get("evidence", []),
-            "edges": graph.get("edges", [])
-        },
-        "recommendation": result_state.get("recommendation", "Allow Transaction"),
-        "status": "Awaiting Human Review" if result_state["rule_score"] >= 31 else "Closed - Low Risk",
-        "reviewer_decision": "Pending",
-        "reviewer_comment": "",
-        "created_at": result_state["created_at"],
-        "audit": [{"time": result_state["created_at"], "actor": "FraudShield AI", "event": "Analysis completed"}],
-        "similar_cases": similar
-    }
-    final = convert_numpy(final)
-    save_case(final)
-    vector_db.index_case(final)
-    return final
+        # 2. Build and run the workflow
+        workflow = build_investigation_workflow()
+        state = {
+            "transaction_id": req.transaction_id,
+            "case_id": f"FS-{req.transaction_id}",
+            "created_at": datetime.now().isoformat()
+        }
+
+        result_state = workflow.invoke(state)
+
+        # 3. Check for errors from nodes
+        if result_state.get("error"):
+            raise HTTPException(400, result_state["error"])
+
+        # 4. Extract data
+        tx = result_state["transaction"]
+        graph = result_state.get("graph_result", {})
+        similar = result_state.get("similar_cases", [])
+
+        # 5. Build final response
+        final = {
+            "case_id": result_state["case_id"],
+            "transaction_id": tx["transaction_id"],
+            "customer_id": tx["customer_id"],
+            "masked_account": "XXXX" + tx["source_account"][-4:],
+            "amount": float(tx["amount"]),
+            "risk_score": int(result_state["rule_score"]),
+            "risk_level": "Critical" if result_state["rule_score"] >= 86 else
+                          "Very High" if result_state["rule_score"] >= 71 else
+                          "High" if result_state["rule_score"] >= 51 else
+                          "Medium" if result_state["rule_score"] >= 31 else "Low",
+            "rule_score": int(result_state["rule_score"]),
+            "anomaly_score": int(result_state.get("anomaly_score", 0)),
+            "network_score": 0,
+            "customer_risk_score": 0,
+            "reasons": result_state.get("reasons", []),
+            "graph": {
+                "cycles": graph.get("cycles", []),
+                "neighbors": graph.get("neighbors", []),
+                "evidence": graph.get("evidence", []),
+                "edges": graph.get("edges", [])
+            },
+            "recommendation": result_state.get("recommendation", "Allow Transaction"),
+            "status": "Awaiting Human Review" if result_state["rule_score"] >= 31 else "Closed - Low Risk",
+            "reviewer_decision": "Pending",
+            "reviewer_comment": "",
+            "created_at": result_state["created_at"],
+            "audit": [{"time": result_state["created_at"], "actor": "FraudShield AI", "event": "Analysis completed"}],
+            "similar_cases": similar
+        }
+
+        # 6. Save and index the case
+        final = convert_numpy(final)
+        save_case(final)
+        vector_db.index_case(final)
+        return final
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Log full stack trace to container logs
+        print("=" * 80)
+        print("Investigation failed with error:")
+        traceback.print_exc()
+        print("=" * 80)
+        raise HTTPException(500, f"Investigation failed: {str(e)}")
 
 @app.get("/customer/{customer_id}/history")
 async def customer_history(customer_id: str, limit: int = 30):

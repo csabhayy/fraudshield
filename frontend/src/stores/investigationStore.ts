@@ -4,6 +4,9 @@ export interface InvestigationResult {
   case_id: string;
   transaction_id: string;
   customer_id: string;
+  amount: number;
+  source_account?: string;
+  beneficiary_account?: string;
   risk_score: number;
   risk_level: string;
   recommendation: string;

@@ -219,22 +219,24 @@ def init_db():
     conn.close()
 
 def load_transactions() -> pd.DataFrame:
+    """Load transactions from SQLite (preferred) or CSV as fallback."""
     init_db()
-    if not CSV_PATH.exists():
-        # Generate customers and merchants first
-        customers_df = generate_customers()
-        customers_df.to_csv(CUSTOMERS_PATH, index=False)
-        merchants_df = generate_merchants()
-        merchants_df.to_csv(MERCHANTS_PATH, index=False)
-        # Generate transactions
-        df = generate_transactions(customers_df)
-        df.to_csv(CSV_PATH, index=False)
-        # Insert into SQLite
-        conn = sqlite3.connect(DB_PATH)
-        customers_df.to_sql('customers', conn, if_exists='replace', index=False)
-        merchants_df.to_sql('merchants', conn, if_exists='replace', index=False)
-        df.to_sql('transactions', conn, if_exists='replace', index=False)
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        # Try reading from SQLite first (includes live-generated transactions)
+        df = pd.read_sql_query("SELECT * FROM transactions", conn, parse_dates=["timestamp"])
         conn.close()
+        if not df.empty:
+            return df
+    except Exception:
+        pass
+    conn.close()
+
+    # Fallback: read from CSV
+    if not CSV_PATH.exists():
+        from .data_service import generate_demo_data
+        df = generate_demo_data()
+        df.to_csv(CSV_PATH, index=False)
     return pd.read_csv(CSV_PATH, parse_dates=["timestamp"])
 
 def get_customer(customer_id: str) -> dict:

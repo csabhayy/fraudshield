@@ -17,6 +17,9 @@
     "react": "^19.2.8",
     "react-countup": "^6.5.3",
     "react-dom": "^19.2.8",
+    "react-force-graph": "^1.48.2",
+    "react-force-graph-2d": "^1.29.1",
+    "react-router-dom": "^7.18.2",
     "recharts": "^3.10.1",
     "tailwindcss": "^4.3.3",
     "zustand": "^5.0.14"

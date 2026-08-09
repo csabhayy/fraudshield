@@ -19,12 +19,17 @@ def data_retriever_node(state: Dict[str, Any]) -> Dict[str, Any]:
     if not tx_id:
         state["error"] = "No transaction_id"
         return state
-    tx_row = tx_df[tx_df["transaction_id"] == tx_id]
-    if tx_row.empty:
-        state["error"] = f"Transaction {tx_id} not found"
-        return state
-    state["transaction"] = tx_row.iloc[0].to_dict()
-    state["all_transactions"] = tx_df.to_dict("records")
+    try:
+        from services.data_service import load_transactions
+        df = load_transactions()  # fresh load from SQLite (includes live data)
+        tx_row = df[df["transaction_id"] == tx_id]
+        if tx_row.empty:
+            state["error"] = f"Transaction {tx_id} not found"
+            return state
+        state["transaction"] = tx_row.iloc[0].to_dict()
+        state["all_transactions"] = df.to_dict("records")
+    except Exception as e:
+        state["error"] = f"Data retrieval error: {str(e)}"
     return state
 
 def graph_analyst_node(state: Dict[str, Any]) -> Dict[str, Any]:

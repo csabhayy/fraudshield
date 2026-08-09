@@ -5,11 +5,18 @@ import numpy as np
 import json
 from pathlib import Path
 from datetime import datetime, timedelta
-from faker import Faker
 import random
 
-# Initialize Faker with Indian locale
-fake = Faker('en_IN')
+try:
+    from faker import Faker
+    fake = Faker('en_IN')
+except ImportError:
+    # Fallback if faker not installed (should not happen in Docker)
+    class Fake:
+        def name(self): return "John Doe"
+        def company(self): return "Acme Corp"
+        def date_between(self, **kwargs): return datetime.now() - timedelta(days=365)
+    fake = Fake()
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 DB_PATH = DATA_DIR / "fraudshield.db"
@@ -17,30 +24,34 @@ CSV_PATH = DATA_DIR / "transactions.csv"
 CUSTOMERS_PATH = DATA_DIR / "customers.csv"
 MERCHANTS_PATH = DATA_DIR / "merchants.csv"
 
-# ---- Helper Functions ----
-def indian_currency(amount):
-    """Format amount in Indian rupee format (lakhs/crores)."""
-    if amount >= 10000000:
-        return f"₹{amount/10000000:.2f} Cr"
-    elif amount >= 100000:
-        return f"₹{amount/100000:.2f} L"
+def convert_numpy(obj):
+    """Recursively convert NumPy types to Python types for JSON serialization."""
+    if isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, dict):
+        return {k: convert_numpy(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy(v) for v in obj]
     else:
-        return f"₹{amount:,.0f}"
+        return obj
 
-# ---- Data Generation ----
 def generate_customers(n=40, seed=42):
     """Generate Indian customer profiles."""
     rng = np.random.default_rng(seed)
     customers = []
-    occupations = ["Software Engineer", "Teacher", "Doctor", "Business Owner", 
+    occupations = ["Software Engineer", "Teacher", "Doctor", "Business Owner",
                    "Accountant", "Government Employee", "Retired", "Student",
                    "Lawyer", "Banker", "Consultant", "Homemaker"]
-    cities = ["Mumbai", "Delhi", "Bengaluru", "Chennai", "Hyderabad", 
+    cities = ["Mumbai", "Delhi", "Bengaluru", "Chennai", "Hyderabad",
               "Kolkata", "Pune", "Ahmedabad", "Jaipur", "Lucknow"]
     states = ["Maharashtra", "Delhi", "Karnataka", "Tamil Nadu", "Telangana",
               "West Bengal", "Maharashtra", "Gujarat", "Rajasthan", "Uttar Pradesh"]
     kyc_statuses = ["Verified", "Pending", "Rejected"]
-    
+
     for i in range(n):
         customer_id = f"CUS-{2000+i}"
         name = fake.name()
@@ -90,11 +101,9 @@ def generate_transactions(customers_df, merchants_df=None, n=360, seed=42):
     base = pd.Timestamp("2026-07-01 09:00:00")
 
     for i in range(n):
-        # Pick a random customer
         customer = customers_df.iloc[rng.integers(0, len(customers_df))]
         source_account = accounts[rng.integers(0, len(accounts))]
         beneficiary_account = accounts[rng.integers(0, len(accounts))]
-        # Avoid self-transfer
         while beneficiary_account == source_account:
             beneficiary_account = accounts[rng.integers(0, len(accounts))]
         amount = float(max(250, rng.lognormal(10.0, .72)))
@@ -110,13 +119,13 @@ def generate_transactions(customers_df, merchants_df=None, n=360, seed=42):
             "device_id": f"DEV-{rng.integers(0, 40):03d}",
             "days_since_last_txn": int(rng.integers(0, 18)),
             "account_status": "Active",
-            "kyc_risk": customer["risk_profile"],  # use customer risk
+            "kyc_risk": customer["risk_profile"],
             "is_international": bool(rng.random() < .04),
             "customer_avg_amount": round(amount * rng.uniform(.65, 1.5), 2),
             "previous_alerts": int(rng.integers(0, 3)),
             "story": "Normal"
         })
-    # Add critical fraud chain (as before)
+    # Add critical fraud chain
     chain = [
         ("TXN-CRIT-001","CUS-2021","ACC-1021","ACC-1031","2026-07-28 09:05:00",700000,"DEV-777","Dormant account receives high-value credit"),
         ("TXN-CRIT-002","CUS-2021","ACC-1021","ACC-1006","2026-07-28 09:42:00",250000,"DEV-777","Rapid outgoing movement"),
@@ -127,7 +136,6 @@ def generate_transactions(customers_df, merchants_df=None, n=360, seed=42):
         ("TXN-CRIT-007","CUS-2014","ACC-1014","ACC-1021","2026-07-28 12:05:00",600000,"DEV-889","Circular flow")
     ]
     for tid,cid,src,dst,ts,amt,dev,story in chain:
-        # ensure customer exists
         if cid not in customers_df["customer_id"].values:
             continue
         rows.append({
@@ -150,7 +158,6 @@ def generate_transactions(customers_df, merchants_df=None, n=360, seed=42):
         })
     return pd.DataFrame(rows)
 
-# ---- Database Initialization ----
 def init_db():
     DATA_DIR.mkdir(exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
@@ -211,20 +218,18 @@ def init_db():
     conn.commit()
     conn.close()
 
-# ---- Load/Generate Data ----
 def load_transactions() -> pd.DataFrame:
     init_db()
     if not CSV_PATH.exists():
-        # Generate customers first
+        # Generate customers and merchants first
         customers_df = generate_customers()
         customers_df.to_csv(CUSTOMERS_PATH, index=False)
-        # Generate merchants (optional)
         merchants_df = generate_merchants()
         merchants_df.to_csv(MERCHANTS_PATH, index=False)
-        # Generate transactions linked to customers
+        # Generate transactions
         df = generate_transactions(customers_df)
         df.to_csv(CSV_PATH, index=False)
-        # Also insert into SQLite
+        # Insert into SQLite
         conn = sqlite3.connect(DB_PATH)
         customers_df.to_sql('customers', conn, if_exists='replace', index=False)
         merchants_df.to_sql('merchants', conn, if_exists='replace', index=False)
@@ -233,7 +238,6 @@ def load_transactions() -> pd.DataFrame:
     return pd.read_csv(CSV_PATH, parse_dates=["timestamp"])
 
 def get_customer(customer_id: str) -> dict:
-    """Retrieve customer details from SQLite."""
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("SELECT * FROM customers WHERE customer_id = ?", (customer_id,))
@@ -244,4 +248,29 @@ def get_customer(customer_id: str) -> dict:
         return dict(zip(cols, row))
     return None
 
-# save_case and load_cases remain the same as before (with convert_numpy)
+def save_case(case: dict):
+    case = convert_numpy(case)
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT OR REPLACE INTO cases (case_id, transaction_id, result_json, reviewer_decision, reviewer_comment, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (
+        case["case_id"],
+        case["transaction_id"],
+        json.dumps(case),
+        case.get("reviewer_decision", "Pending"),
+        case.get("reviewer_comment", ""),
+        case["created_at"],
+        datetime.now().isoformat()
+    ))
+    conn.commit()
+    conn.close()
+
+def load_cases() -> list:
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT result_json FROM cases")
+    rows = cur.fetchall()
+    conn.close()
+    return [json.loads(row[0]) for row in rows]

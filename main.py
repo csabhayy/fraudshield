@@ -131,16 +131,62 @@ async def chat(req: ChatRequest):
     if not case:
         raise HTTPException(404, "Case not found")
 
+    # 1. Fetch customer details from SQLite
+    customer_id = case.get("customer_id")
+    customer_info = "Not available"
+    if customer_id:
+        cust = get_customer(customer_id)
+        if cust:
+            customer_info = (
+                f"Name: {cust.get('name', 'N/A')}, "
+                f"Age: {cust.get('age', 'N/A')}, "
+                f"Occupation: {cust.get('occupation', 'N/A')}, "
+                f"City: {cust.get('city', 'N/A')}, "
+                f"State: {cust.get('state', 'N/A')}, "
+                f"KYC Status: {cust.get('kyc_status', 'N/A')}, "
+                f"Risk Profile: {cust.get('risk_profile', 'N/A')}"
+            )
+
+    # 2. Format similar cases (from RAG) for context
+    similar_cases = case.get("similar_cases", [])
+    similar_text = ""
+    if similar_cases:
+        similar_text = "\n".join([
+            f"- Case {sim.get('case_id')}: risk {sim.get('risk_score')}, "
+            f"decision: {sim.get('reviewer_decision', 'Pending')}"
+            for sim in similar_cases[:3]
+        ])
+    else:
+        similar_text = "No similar past cases found."
+
+    # 3. Build a rich prompt
     context = f"""
-Case {case['case_id']}: Transaction {case['transaction_id']} amount {case['amount']}, risk score {case['risk_score']}, level {case['risk_level']}.
-Reasons: {case.get('reasons', [])}
-Graph evidence: {case.get('graph', {}).get('evidence', [])}
+Case ID: {case['case_id']}
+Transaction: {case['transaction_id']}
+Amount: ₹{case['amount']:,.2f}
+Risk Score: {case['risk_score']} ({case['risk_level']})
 Recommendation: {case['recommendation']}
+
+Customer Profile:
+{customer_info}
+
+Reasons for risk score:
+{chr(10).join([f"- {r['rule']}: {r['evidence']}" for r in case.get('reasons', [])])}
+
+Graph Evidence:
+{chr(10).join(case.get('graph', {}).get('evidence', []))}
+
+Similar Past Cases:
+{similar_text}
+
+Investigator Question: {req.query}
+
+Answer the question using the provided information. Be concise and helpful.
 """
-    prompt = f"{context}\n\nInvestigator question: {req.query}\nAnswer concisely based on the data:"
+
     ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434")
 
-    # 1. Check if Ollama is reachable and get available models
+    # Check if Ollama is reachable and get available models
     try:
         models_resp = requests.get(f"{ollama_url}/api/tags", timeout=5)
         if models_resp.status_code != 200:
@@ -152,16 +198,13 @@ Recommendation: {case['recommendation']}
     except Exception as e:
         return {"response": f"Could not connect to Ollama: {str(e)}. Make sure the container is running."}
 
-    # 2. Pick the first available model (or a specific one)
-    # You can set your preferred model here or use the first one.
     preferred_model = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
     model_to_use = preferred_model if preferred_model in model_names else model_names[0]
 
-    # 3. Generate answer
     try:
         response = requests.post(
             f"{ollama_url}/api/generate",
-            json={"model": model_to_use, "prompt": prompt, "stream": False},
+            json={"model": model_to_use, "prompt": context, "stream": False},
             timeout=30
         )
         if response.status_code == 200:

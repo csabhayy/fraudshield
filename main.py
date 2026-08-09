@@ -4,6 +4,7 @@ import requests
 import numpy as np
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from datetime import datetime
@@ -18,6 +19,14 @@ from services.data_service import load_transactions, save_case, load_cases, get_
 from services.vector_service import VectorService
 from services.graph_service import Neo4jClient
 from services.transaction_generator import start_generator
+from agents.nodes import (
+    data_retriever_node,
+    graph_analyst_node,
+    rule_engine_node,
+    anomaly_detector_node,
+    rag_retriever_node,
+    report_generator_node,
+)
 
 load_dotenv()
 
@@ -78,76 +87,148 @@ class ChatRequest(BaseModel):
     case_id: str
     query: str
 
+
+STAGE_PIPELINE = [
+    ("data_retriever", data_retriever_node),
+    ("graph_analyst", graph_analyst_node),
+    ("rule_engine", rule_engine_node),
+    ("anomaly_detector", anomaly_detector_node),
+    ("rag_retriever", rag_retriever_node),
+    ("report_generator", report_generator_node),
+]
+
+
+def _create_initial_state(transaction_id: str) -> dict:
+    return {
+        "transaction_id": transaction_id,
+        "case_id": f"FS-{transaction_id}",
+        "created_at": datetime.now().isoformat(),
+    }
+
+
+def _summarize_stage_output(stage_name: str, state: dict) -> dict:
+    if stage_name == "data_retriever":
+        tx = state.get("transaction", {})
+        return {
+            "transaction_id": tx.get("transaction_id"),
+            "customer_id": tx.get("customer_id"),
+            "amount": tx.get("amount"),
+            "channel": tx.get("channel"),
+        }
+    if stage_name == "graph_analyst":
+        graph = state.get("graph_result", {})
+        return {
+            "cycles": len(graph.get("cycles", [])),
+            "neighbors": len(graph.get("neighbors", [])),
+            "edges": len(graph.get("edges", [])),
+        }
+    if stage_name == "rule_engine":
+        return {
+            "risk_score": state.get("rule_score", 0),
+            "reasons": len(state.get("reasons", [])),
+            "recommendation": state.get("recommendation", "N/A"),
+        }
+    if stage_name == "anomaly_detector":
+        return {
+            "anomaly_score": state.get("anomaly_score", 0),
+        }
+    if stage_name == "rag_retriever":
+        return {
+            "similar_cases": len(state.get("similar_cases", [])),
+        }
+    if stage_name == "report_generator":
+        return {
+            "narrative_ready": bool(state.get("narrative")),
+        }
+    return {}
+
+
+def _build_case_response(result_state: dict) -> dict:
+    tx = result_state["transaction"]
+    graph = result_state.get("graph_result", {})
+    similar = result_state.get("similar_cases", [])
+
+    final = {
+        "case_id": result_state["case_id"],
+        "transaction_id": tx["transaction_id"],
+        "customer_id": tx["customer_id"],
+        "masked_account": "XXXX" + tx["source_account"][-4:],
+        "amount": float(tx["amount"]),
+        "risk_score": int(result_state["rule_score"]),
+        "risk_level": "Critical" if result_state["rule_score"] >= 86 else
+                      "Very High" if result_state["rule_score"] >= 71 else
+                      "High" if result_state["rule_score"] >= 51 else
+                      "Medium" if result_state["rule_score"] >= 31 else "Low",
+        "rule_score": int(result_state["rule_score"]),
+        "anomaly_score": int(result_state.get("anomaly_score", 0)),
+        "network_score": 0,
+        "customer_risk_score": 0,
+        "reasons": result_state.get("reasons", []),
+        "graph": {
+            "cycles": graph.get("cycles", []),
+            "neighbors": graph.get("neighbors", []),
+            "evidence": graph.get("evidence", []),
+            "edges": graph.get("edges", [])
+        },
+        "recommendation": result_state.get("recommendation", "Allow Transaction"),
+        "status": "Awaiting Human Review" if result_state["rule_score"] >= 31 else "Closed - Low Risk",
+        "reviewer_decision": "Pending",
+        "reviewer_comment": "",
+        "created_at": result_state["created_at"],
+        "audit": [{"time": result_state["created_at"], "actor": "FraudShield AI", "event": "Analysis completed"}],
+        "similar_cases": similar
+    }
+    return convert_numpy(final)
+
+
+def _run_pipeline(transaction_id: str):
+    df = load_transactions()
+    if transaction_id not in df["transaction_id"].values:
+        raise HTTPException(404, "Transaction not found")
+
+    state = _create_initial_state(transaction_id)
+    stage_events = []
+
+    for stage_name, stage_fn in STAGE_PIPELINE:
+        started_at = datetime.now()
+        state = stage_fn(state)
+        duration_ms = int((datetime.now() - started_at).total_seconds() * 1000)
+
+        stage_payload = {
+            "stage": stage_name,
+            "status": "failed" if state.get("error") else "completed",
+            "duration_ms": duration_ms,
+            "output": _summarize_stage_output(stage_name, state),
+        }
+        stage_events.append(stage_payload)
+
+        if state.get("error"):
+            break
+
+    return state, stage_events
+
+
+def _persist_case(final_case: dict):
+    save_case(final_case)
+    vector_db.index_case(final_case)
+
+
+def _sse_event(event_name: str, payload: dict) -> str:
+    return f"event: {event_name}\ndata: {json.dumps(convert_numpy(payload))}\n\n"
+
 # ------- Endpoints -------
 @app.post("/investigate")
 async def investigate(req: InvestigateRequest):
     import traceback
-    import pandas as pd
-    from services.data_service import load_transactions, save_case, convert_numpy
-    from agents.workflow import build_investigation_workflow
-    from datetime import datetime
 
     try:
-        # 1. Load transactions from SQLite (includes live data)
-        df = load_transactions()
-        if req.transaction_id not in df["transaction_id"].values:
-            raise HTTPException(404, "Transaction not found")
+        result_state, _ = _run_pipeline(req.transaction_id)
 
-        # 2. Build and run the workflow
-        workflow = build_investigation_workflow()
-        state = {
-            "transaction_id": req.transaction_id,
-            "case_id": f"FS-{req.transaction_id}",
-            "created_at": datetime.now().isoformat()
-        }
-
-        result_state = workflow.invoke(state)
-
-        # 3. Check for errors from nodes
         if result_state.get("error"):
             raise HTTPException(400, result_state["error"])
 
-        # 4. Extract data
-        tx = result_state["transaction"]
-        graph = result_state.get("graph_result", {})
-        similar = result_state.get("similar_cases", [])
-
-        # 5. Build final response
-        final = {
-            "case_id": result_state["case_id"],
-            "transaction_id": tx["transaction_id"],
-            "customer_id": tx["customer_id"],
-            "masked_account": "XXXX" + tx["source_account"][-4:],
-            "amount": float(tx["amount"]),
-            "risk_score": int(result_state["rule_score"]),
-            "risk_level": "Critical" if result_state["rule_score"] >= 86 else
-                          "Very High" if result_state["rule_score"] >= 71 else
-                          "High" if result_state["rule_score"] >= 51 else
-                          "Medium" if result_state["rule_score"] >= 31 else "Low",
-            "rule_score": int(result_state["rule_score"]),
-            "anomaly_score": int(result_state.get("anomaly_score", 0)),
-            "network_score": 0,
-            "customer_risk_score": 0,
-            "reasons": result_state.get("reasons", []),
-            "graph": {
-                "cycles": graph.get("cycles", []),
-                "neighbors": graph.get("neighbors", []),
-                "evidence": graph.get("evidence", []),
-                "edges": graph.get("edges", [])
-            },
-            "recommendation": result_state.get("recommendation", "Allow Transaction"),
-            "status": "Awaiting Human Review" if result_state["rule_score"] >= 31 else "Closed - Low Risk",
-            "reviewer_decision": "Pending",
-            "reviewer_comment": "",
-            "created_at": result_state["created_at"],
-            "audit": [{"time": result_state["created_at"], "actor": "FraudShield AI", "event": "Analysis completed"}],
-            "similar_cases": similar
-        }
-
-        # 6. Save and index the case
-        final = convert_numpy(final)
-        save_case(final)
-        vector_db.index_case(final)
+        final = _build_case_response(result_state)
+        _persist_case(final)
         return final
 
     except HTTPException:
@@ -159,6 +240,84 @@ async def investigate(req: InvestigateRequest):
         traceback.print_exc()
         print("=" * 80)
         raise HTTPException(500, f"Investigation failed: {str(e)}")
+
+
+@app.get("/investigate/stream/{transaction_id}")
+async def investigate_stream(transaction_id: str):
+    def stream_events():
+        import traceback
+
+        try:
+            state = _create_initial_state(transaction_id)
+            yield _sse_event("investigation_started", {
+                "transaction_id": transaction_id,
+                "case_id": state["case_id"],
+                "created_at": state["created_at"],
+            })
+
+            df = load_transactions()
+            if transaction_id not in df["transaction_id"].values:
+                yield _sse_event("investigation_error", {
+                    "message": "Transaction not found",
+                    "status_code": 404,
+                })
+                return
+
+            for stage_name, stage_fn in STAGE_PIPELINE:
+                yield _sse_event("stage_update", {
+                    "stage": stage_name,
+                    "status": "started",
+                })
+
+                started_at = datetime.now()
+                state = stage_fn(state)
+                duration_ms = int((datetime.now() - started_at).total_seconds() * 1000)
+
+                if state.get("error"):
+                    yield _sse_event("stage_update", {
+                        "stage": stage_name,
+                        "status": "failed",
+                        "duration_ms": duration_ms,
+                        "error": state["error"],
+                    })
+                    yield _sse_event("investigation_error", {
+                        "message": state["error"],
+                        "status_code": 400,
+                    })
+                    return
+
+                yield _sse_event("stage_update", {
+                    "stage": stage_name,
+                    "status": "completed",
+                    "duration_ms": duration_ms,
+                    "output": _summarize_stage_output(stage_name, state),
+                })
+
+            final = _build_case_response(state)
+            _persist_case(final)
+
+            yield _sse_event("investigation_result", final)
+            yield _sse_event("investigation_done", {
+                "transaction_id": transaction_id,
+                "case_id": final.get("case_id"),
+            })
+
+        except Exception as exc:
+            print("=" * 80)
+            print("Streaming investigation failed:")
+            traceback.print_exc()
+            print("=" * 80)
+            yield _sse_event("investigation_error", {
+                "message": f"Investigation failed: {str(exc)}",
+                "status_code": 500,
+            })
+
+    headers = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+    return StreamingResponse(stream_events(), media_type="text/event-stream", headers=headers)
 
 @app.get("/customer/{customer_id}/history")
 async def customer_history(customer_id: str, limit: int = 30):

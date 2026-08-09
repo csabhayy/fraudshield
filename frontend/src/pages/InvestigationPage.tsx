@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useInvestigate } from '../hooks/useInvestigation';
+import { streamInvestigation, type InvestigationStageUpdate } from '../hooks/useInvestigation';
 import { useChat } from '../hooks/useChat';
+import type { InvestigationResult } from '../stores/investigationStore';
 import {
   ArrowLeft,
   Send,
@@ -10,6 +11,7 @@ import {
   X,
   Sparkles,
   AlertTriangle,
+  Circle,
 } from 'lucide-react';
 import ForceGraph2D from 'react-force-graph-2d';
 import { animated, useSpring } from '@react-spring/web';
@@ -117,8 +119,11 @@ const AGENT_STEPS = [
 const InvestigationPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { mutateAsync: investigate, data: caseData, isPending, error: investigationError } = useInvestigate();
   const { mutateAsync: chat } = useChat();
+
+  const [caseData, setCaseData] = useState<InvestigationResult | null>(null);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [investigationError, setInvestigationError] = useState<string | null>(null);
 
   // ---- Local error state ----
   const [localError, setLocalError] = useState<string | null>(null);
@@ -135,6 +140,10 @@ const InvestigationPage: React.FC = () => {
   const [aiResponse, setAiResponse] = useState('');
   const [isAiTyping, setIsAiTyping] = useState(false);
   const graphRef = useRef<any>(null);
+  const [stageState, setStageState] = useState<Record<string, InvestigationStageUpdate['status'] | 'pending'>>(
+    () => Object.fromEntries(AGENT_STEPS.map((step) => [step.id, 'pending'])),
+  );
+  const [stageDurations, setStageDurations] = useState<Record<string, number>>({});
 
   // Keep hook order stable across loading/error/success renders.
   const orbSpring = useSpring({
@@ -148,14 +157,53 @@ const InvestigationPage: React.FC = () => {
     config: { duration: 2000 },
   });
 
-  // ---- Auto‑investigate ----
+  // ---- Auto‑investigate (streaming stages) ----
   useEffect(() => {
-    if (id) {
-      investigate(id).catch((err: any) => {
-        setLocalError(err.message || 'Investigation failed. Please try again.');
-      });
-    }
-  }, [id, investigate]);
+    if (!id) return;
+
+    setCaseData(null);
+    setLocalError(null);
+    setInvestigationError(null);
+    setIsStreaming(true);
+    setStageState(Object.fromEntries(AGENT_STEPS.map((step) => [step.id, 'pending'])));
+    setStageDurations({});
+
+    const stopStream = streamInvestigation(id, {
+      onStageUpdate: (update) => {
+        setStageState((prev) => ({
+          ...prev,
+          [update.stage]: update.status,
+        }));
+
+        const durationMs = update.duration_ms;
+        if (typeof durationMs === 'number') {
+          setStageDurations((prev) => ({
+            ...prev,
+            [update.stage]: durationMs,
+          }));
+        }
+
+        if (update.status === 'failed' && update.error) {
+          setInvestigationError(update.error);
+          setIsStreaming(false);
+        }
+      },
+      onResult: (result) => {
+        setCaseData(result);
+      },
+      onDone: () => {
+        setIsStreaming(false);
+      },
+      onError: ({ message }) => {
+        setInvestigationError(message || 'Investigation failed. Please try again.');
+        setIsStreaming(false);
+      },
+    });
+
+    return () => {
+      stopStream();
+    };
+  }, [id]);
 
   // ---- Build graph data ----
   useEffect(() => {
@@ -255,7 +303,7 @@ const InvestigationPage: React.FC = () => {
   };
 
   // ---- Loading State ----
-  if (isPending) {
+  if (isStreaming && !caseData && !investigationError) {
     return (
       <div className="min-h-screen bg-[#F8F8F6] p-8 flex items-center justify-center">
         <div className="text-center">
@@ -275,7 +323,7 @@ const InvestigationPage: React.FC = () => {
           <AlertTriangle size={48} className="text-[#E94532] mx-auto mb-4" />
           <h2 className="text-xl font-serif font-bold text-[#242424] mb-2">Investigation Failed</h2>
           <p className="text-gray-600 text-sm mb-4">
-            {investigationError?.message || localError || 'Could not complete the investigation. Please try again.'}
+            {investigationError || localError || 'Could not complete the investigation. Please try again.'}
           </p>
           <button
             onClick={handleBack}
@@ -411,31 +459,49 @@ const InvestigationPage: React.FC = () => {
             <div className="bg-white border border-[#4A4A4A] rounded-md p-4 shadow-sm">
               <h3 className="font-serif font-bold text-[#242424] mb-3">Investigation Timeline</h3>
               <div className="space-y-3">
-                {AGENT_STEPS.map((step) => (
-                  <div
-                    key={step.id}
-                    className="flex items-start space-x-3 relative group"
-                    onMouseEnter={() => setExpandedAgent(step.id)}
-                    onMouseLeave={() => setExpandedAgent(null)}
-                  >
-                    <div className="w-3 h-3 rounded-full mt-1 bg-green-500 flex-shrink-0" />
-                    <div className="flex-1">
-                      <div className="font-medium flex items-center space-x-2">
-                        <span>{step.label}</span>
-                        <CheckCircle size={14} className="text-green-500" />
-                      </div>
-                      <div className="text-sm text-gray-500">{step.description}</div>
-                      {expandedAgent === step.id && (
-                        <div className="mt-2 p-3 bg-gray-50 border border-gray-200 rounded-md text-xs text-gray-700 max-w-md">
-                          {step.details.split('\n').map((line, i) => (
-                            <div key={i}>{line}</div>
-                          ))}
-                          <div className="mt-1 text-gray-500">Use case: {step.useCase}</div>
+                {AGENT_STEPS.map((step) => {
+                  const currentStatus = stageState[step.id] || 'pending';
+                  const isRunning = currentStatus === 'started';
+                  const isCompleted = currentStatus === 'completed';
+                  const isFailed = currentStatus === 'failed';
+                  const durationMs = stageDurations[step.id];
+
+                  return (
+                    <div
+                      key={step.id}
+                      className="flex items-start space-x-3 relative group"
+                      onMouseEnter={() => setExpandedAgent(step.id)}
+                      onMouseLeave={() => setExpandedAgent(null)}
+                    >
+                      <div
+                        className={`w-3 h-3 rounded-full mt-1 flex-shrink-0 ${
+                          isFailed ? 'bg-red-500' : isCompleted ? 'bg-green-500' : isRunning ? 'bg-[#E94532]' : 'bg-gray-300'
+                        }`}
+                      />
+                      <div className="flex-1">
+                        <div className="font-medium flex items-center space-x-2">
+                          <span>{step.label}</span>
+                          {isRunning && <Loader2 size={14} className="text-[#E94532] animate-spin" />}
+                          {isCompleted && <CheckCircle size={14} className="text-green-500" />}
+                          {!isCompleted && !isRunning && !isFailed && <Circle size={12} className="text-gray-300" />}
+                          {isFailed && <AlertTriangle size={14} className="text-red-500" />}
+                          {typeof durationMs === 'number' && (
+                            <span className="text-[10px] uppercase tracking-wide text-gray-400">{durationMs}ms</span>
+                          )}
                         </div>
-                      )}
+                        <div className="text-sm text-gray-500">{step.description}</div>
+                        {expandedAgent === step.id && (
+                          <div className="mt-2 p-3 bg-gray-50 border border-gray-200 rounded-md text-xs text-gray-700 max-w-md">
+                            {step.details.split('\n').map((line, i) => (
+                              <div key={i}>{line}</div>
+                            ))}
+                            <div className="mt-1 text-gray-500">Use case: {step.useCase}</div>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>

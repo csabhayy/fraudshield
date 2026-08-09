@@ -191,12 +191,16 @@ async def customer_history(customer_id: str, limit: int = 30):
 
 @app.post("/chat")
 async def chat(req: ChatRequest):
+    import requests
+    import os
+    from services.data_service import load_cases, get_customer
+
     cases = load_cases()
     case = next((c for c in cases if c["case_id"] == req.case_id), None)
     if not case:
         raise HTTPException(404, "Case not found")
 
-    # 1. Fetch customer details from SQLite
+    # Fetch customer details if available
     customer_id = case.get("customer_id")
     customer_info = "Not available"
     if customer_id:
@@ -212,21 +216,19 @@ async def chat(req: ChatRequest):
                 f"Risk Profile: {cust.get('risk_profile', 'N/A')}"
             )
 
-    # 2. Format similar cases (from RAG) for context
-    similar_cases = case.get("similar_cases", [])
+    # Similar cases
+    similar = case.get("similar_cases", [])
     similar_text = ""
-    if similar_cases:
+    if similar:
         similar_text = "\n".join([
-            f"- Case {sim.get('case_id')}: risk {sim.get('risk_score')}, "
-            f"decision: {sim.get('reviewer_decision', 'Pending')}"
-            for sim in similar_cases[:3]
+            f"- Case {s.get('case_id')}: risk {s.get('risk_score')}, decision: {s.get('reviewer_decision', 'Pending')}"
+            for s in similar[:3]
         ])
     else:
         similar_text = "No similar past cases found."
 
-    # 3. Build a rich prompt
+    # Build a structured, concise prompt
     context = f"""
-Case ID: {case['case_id']}
 Transaction: {case['transaction_id']}
 Amount: ₹{case['amount']:,.2f}
 Risk Score: {case['risk_score']} ({case['risk_level']})
@@ -235,33 +237,42 @@ Recommendation: {case['recommendation']}
 Customer Profile:
 {customer_info}
 
-Reasons for risk score:
+Risk Signals (reasons):
 {chr(10).join([f"- {r['rule']}: {r['evidence']}" for r in case.get('reasons', [])])}
 
 Graph Evidence:
 {chr(10).join(case.get('graph', {}).get('evidence', []))}
 
-Similar Past Cases:
+Similar Cases:
 {similar_text}
 
 Investigator Question: {req.query}
 
-Answer the question using the provided information. Be concise and helpful.
+Instructions:
+- You are a fraud investigator. Answer directly, confidently, and concisely.
+- Use a conversational tone, as if speaking to a colleague.
+- Do not hedge or use phrases like "based on the provided information" or "I can infer".
+- Focus on the facts and the data. Be precise.
+- Keep the answer under 4 sentences unless the question requires more detail.
+- If the question asks about the transaction's nature, state it clearly (e.g., "This is a suspicious transfer because...").
+- If the question asks for a recommendation, give a clear actionable next step.
+
+Answer:
 """
 
     ollama_url = os.getenv("OLLAMA_URL", "http://localhost:11434")
 
-    # Check if Ollama is reachable and get available models
+    # Check if Ollama is available
     try:
         models_resp = requests.get(f"{ollama_url}/api/tags", timeout=5)
         if models_resp.status_code != 200:
-            return {"response": "Ollama is not responding. Please start it with `docker start fraudshield-ollama-1` and pull a model."}
+            return {"response": "Ollama is not responding. Please start it."}
         models = models_resp.json().get("models", [])
         model_names = [m["name"] for m in models]
         if not model_names:
-            return {"response": "No models found in Ollama. Please pull one: `docker exec -it fraudshield-ollama-1 ollama pull llama3.2:3b`"}
+            return {"response": "No models found. Please pull a model."}
     except Exception as e:
-        return {"response": f"Could not connect to Ollama: {str(e)}. Make sure the container is running."}
+        return {"response": f"Could not connect to Ollama: {str(e)}"}
 
     preferred_model = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
     model_to_use = preferred_model if preferred_model in model_names else model_names[0]
@@ -275,9 +286,9 @@ Answer the question using the provided information. Be concise and helpful.
         if response.status_code == 200:
             answer = response.json().get("response", "No answer generated.")
         else:
-            answer = f"Ollama error: {response.status_code} - {response.text}"
+            answer = f"Ollama error: {response.status_code}"
     except Exception as e:
-        answer = f"Error calling Ollama: {str(e)}"
+        answer = f"Error: {str(e)}"
 
     return {"response": answer}
 

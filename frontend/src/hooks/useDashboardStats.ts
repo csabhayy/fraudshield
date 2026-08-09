@@ -9,5 +9,8 @@ export const useDashboardStats = () => {
       const { data } = await apiClient.get<DashboardStats>('/dashboard/stats');
       return data;
     },
+    refetchInterval: 5000,
+    refetchIntervalInBackground: true,
+    staleTime: 2000,
   });
 };

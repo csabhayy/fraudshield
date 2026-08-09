@@ -17,6 +17,7 @@ from agents.workflow import build_investigation_workflow
 from services.data_service import load_transactions, save_case, load_cases, get_customer
 from services.vector_service import VectorService
 from services.graph_service import Neo4jClient
+from services.transaction_generator import start_generator
 
 load_dotenv()
 
@@ -51,7 +52,8 @@ async def lifespan(app: FastAPI):
         print(f"⚠️ Could not clear graph: {e}")
     app.state.neo4j.bulk_add_edges(df)
     print(f"✅ Inserted {len(df)} edges into Neo4j.")
-
+    # Generates 1 transaction every 2-5 sec
+    start_generator()
     # Application runs
     yield
 
@@ -392,3 +394,29 @@ async def dashboard_stats():
     except Exception as e:
         print(f"Dashboard stats error: {e}")
         return fallback
+
+@app.get("/recent-transactions")
+async def recent_transactions(limit: int = 10):
+    import sqlite3
+    conn = sqlite3.connect("data/fraudshield.db")
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT transaction_id, customer_id, amount, channel, location, timestamp, story
+        FROM transactions
+        ORDER BY timestamp DESC
+        LIMIT ?
+    """, (limit,))
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        {
+            "id": r[0],
+            "customer": r[1],
+            "amount": r[2],
+            "channel": r[3],
+            "location": r[4],
+            "timestamp": r[5],
+            "story": r[6]
+        }
+        for r in rows
+    ]

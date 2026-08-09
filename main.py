@@ -10,7 +10,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 from agents.workflow import build_investigation_workflow
-from services.data_service import load_transactions, save_case, load_cases
+from services.data_service import load_transactions, save_case, load_cases, get_customer
 from services.vector_service import VectorService
 from services.graph_service import Neo4jClient
 

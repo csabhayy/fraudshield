@@ -43,7 +43,7 @@ services:
       - qdrant
       - ollama
     volumes:
-      - ./data:/app/data   # optional: persist data locally
+      - ./data:/app/data
 
   streamlit:
     build:
@@ -57,3 +57,8 @@ services:
       - api
     volumes:
       - ./data:/app/data
+
+volumes:
+  neo4j_data:
+  qdrant_data:
+  ollama_data:

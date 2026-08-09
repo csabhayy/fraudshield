@@ -20,6 +20,7 @@
     "react-force-graph": "^1.48.2",
     "react-force-graph-2d": "^1.29.1",
     "react-router-dom": "^7.18.2",
+    "react-spring": "^10.0.4",
     "recharts": "^3.10.1",
     "tailwindcss": "^4.3.3",
     "zustand": "^5.0.14"

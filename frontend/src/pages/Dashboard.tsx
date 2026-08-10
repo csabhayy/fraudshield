@@ -11,11 +11,56 @@ import DashboardFooter from '../components/DashboardFooter';
 import InvestigationModal from '../components/InvestigationModal';
 import { Search } from 'lucide-react';
 
+// ---------- Skeleton Loader Component ----------
+const SkeletonLoader = () => (
+  <div className="animate-pulse space-y-4">
+    <div className="grid grid-cols-12 gap-4">
+      <div className="col-span-3">
+        <div className="bg-white border border-[#4A4A4A] rounded-md p-4 h-40">
+          <div className="bg-gray-200 h-6 w-24 rounded"></div>
+          <div className="bg-gray-200 h-10 w-32 rounded mt-4"></div>
+        </div>
+      </div>
+      <div className="col-span-6">
+        <div className="bg-white border border-[#4A4A4A] rounded-md p-4 h-40">
+          <div className="bg-gray-200 h-6 w-48 rounded"></div>
+          <div className="bg-gray-200 h-24 w-full rounded mt-4"></div>
+        </div>
+      </div>
+      <div className="col-span-3">
+        <div className="bg-white border border-[#4A4A4A] rounded-md p-4 h-40">
+          <div className="bg-gray-200 h-6 w-32 rounded"></div>
+          <div className="bg-gray-200 h-16 w-full rounded mt-4"></div>
+        </div>
+      </div>
+    </div>
+    <div className="grid grid-cols-12 gap-4">
+      <div className="col-span-5">
+        <div className="bg-white border border-[#4A4A4A] rounded-md p-4 h-48">
+          <div className="bg-gray-200 h-6 w-48 rounded"></div>
+          <div className="bg-gray-200 h-20 w-full rounded mt-4"></div>
+        </div>
+      </div>
+      <div className="col-span-7">
+        <div className="bg-white border border-[#4A4A4A] rounded-md p-4 h-48">
+          <div className="bg-gray-200 h-6 w-56 rounded"></div>
+          <div className="bg-gray-200 h-20 w-full rounded mt-4"></div>
+        </div>
+      </div>
+    </div>
+    <div className="bg-white border border-[#4A4A4A] rounded-md p-4 h-32">
+      <div className="bg-gray-200 h-6 w-40 rounded"></div>
+      <div className="bg-gray-200 h-16 w-full rounded mt-4"></div>
+    </div>
+  </div>
+);
+
 const Dashboard = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const { data, isLoading, error, dataUpdatedAt } = useDashboardStats();
+  const { data: stats, isLoading, error, dataUpdatedAt } = useDashboardStats();
 
-  const stats = data || {
+  // If stats is null but not loading, use fallback
+  const displayStats = stats || {
     totalTransactions: 0,
     unusualTransactions: 0,
     verification: { verified: 0, fraudulent: 0, unassigned: 0 },
@@ -48,33 +93,38 @@ const Dashboard = () => {
           Last updated: {lastUpdated}
         </div>
 
-        {isLoading && <div className="text-center text-gray-600 mt-10">Loading dashboard data...</div>}
-        {error && <div className="text-center text-red-600 mt-10">Error loading data. Using fallback.</div>}
+        {isLoading ? (
+          <SkeletonLoader />
+        ) : error ? (
+          <div className="text-center text-red-600 mt-10">Error loading data. Using fallback.</div>
+        ) : (
+          <>
+            <div className="grid grid-cols-12 gap-4 mt-6">
+              <div className="col-span-3">
+                <RecentActivity total={displayStats.totalTransactions} unusual={displayStats.unusualTransactions} />
+              </div>
+              <div className="col-span-6">
+                <TransactionActivityChart data={displayStats.chartData} />
+              </div>
+              <div className="col-span-3">
+                <VerificationPanel data={displayStats.verification} />
+              </div>
+            </div>
 
-        <div className="grid grid-cols-12 gap-4 mt-6">
-          <div className="col-span-3">
-            <RecentActivity total={stats.totalTransactions} unusual={stats.unusualTransactions} />
-          </div>
-          <div className="col-span-6">
-            <TransactionActivityChart data={stats.chartData} />
-          </div>
-          <div className="col-span-3">
-            <VerificationPanel data={stats.verification} />
-          </div>
-        </div>
+            <div className="grid grid-cols-12 gap-4 mt-6">
+              <div className="col-span-5">
+                <UnusualTransactionAlerts alerts={displayStats.alerts} />
+              </div>
+              <div className="col-span-7">
+                <OngoingInvestigation investigations={displayStats.investigations} />
+              </div>
+            </div>
 
-        <div className="grid grid-cols-12 gap-4 mt-6">
-          <div className="col-span-5">
-            <UnusualTransactionAlerts alerts={stats.alerts} />
-          </div>
-          <div className="col-span-7">
-            <OngoingInvestigation investigations={stats.investigations} />
-          </div>
-        </div>
-
-        <div className="mt-6">
-          <RecentTransactions />
-        </div>
+            <div className="mt-6">
+              <RecentTransactions />
+            </div>
+          </>
+        )}
 
         <DashboardFooter />
         <InvestigationModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />

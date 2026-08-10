@@ -141,6 +141,7 @@ const InvestigationPage: React.FC = () => {
     links: [],
   });
   const [highlightedPath, setHighlightedPath] = useState<string[]>([]);
+  const [highlightedEdges, setHighlightedEdges] = useState<Set<string>>(new Set());
   const graphRef = useRef<any>(null);
 
   // ---- AI Orb & Chat ----
@@ -191,7 +192,6 @@ const InvestigationPage: React.FC = () => {
           ...prev,
           [update.stage]: update.status,
         }));
-        // ✅ Only update duration if it's a number
         setStageDurations((prev) => ({
           ...prev,
           ...(typeof update.duration_ms === 'number' ? { [update.stage]: update.duration_ms } : {}),
@@ -203,7 +203,6 @@ const InvestigationPage: React.FC = () => {
       },
       onResult: (result) => {
         setCaseData(result);
-        // Stream narrative from reasons
         if (result.reasons && result.reasons.length > 0) {
           const narrative = result.reasons.map((r: any) => r.evidence).join(' ');
           let index = 0;
@@ -306,15 +305,35 @@ const InvestigationPage: React.FC = () => {
     }
   };
 
-  // ---- Risk Signal Click ----
+  // ---- Risk Signal Click (with edge highlighting) ----
   const handleRiskSignalClick = (rule: string, evidence: string) => {
-    const accounts = evidence.match(/ACC-\d{4}/g) || [];
+    // Explicitly type accounts as string[]
+    const accounts: string[] = evidence.match(/ACC-\d{4}/g) || [];
     if (accounts.length > 0) {
       setHighlightedPath(accounts);
+
+      // Build a set of edge IDs (source-target) to highlight
+      const edgeSet = new Set<string>();
+      const links = graphData.links || [];
+      links.forEach((link) => {
+        if (accounts.includes(link.source) && accounts.includes(link.target)) {
+          edgeSet.add(`${link.source}-${link.target}`);
+        }
+      });
+      setHighlightedEdges(edgeSet);
+
+      // Zoom to the first account
       if (graphRef.current) {
-        graphRef.current.centerAt(0, 0, 500);
-        graphRef.current.zoom(2, 500);
+        const node = graphData.nodes.find(n => n.id === accounts[0]);
+        if (node) {
+          graphRef.current.centerAtNode(node.id, 500);
+          graphRef.current.zoom(2, 500);
+        }
       }
+    } else {
+      // If no accounts, clear highlighting
+      setHighlightedPath([]);
+      setHighlightedEdges(new Set());
     }
     handleAiChat(`Explain the "${rule}" risk signal. Evidence: ${evidence}`);
   };
@@ -406,7 +425,7 @@ const InvestigationPage: React.FC = () => {
 
   const confidence = risk_score >= 70 ? 92 : risk_score >= 40 ? 75 : 60;
 
-  // ---- Custom node renderer for graph ----
+  // ---- Custom node renderer: label above circle ----
   const renderNode = (node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
     const fontSize = Math.min(12, 10 / globalScale + 8);
     const radius = Math.min(18, 14 / globalScale + 8);
@@ -417,14 +436,17 @@ const InvestigationPage: React.FC = () => {
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 1.5 / globalScale;
     ctx.stroke();
+    // Label above the node
     ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
+    ctx.textBaseline = 'bottom';
     ctx.font = `${fontSize}px Inter, sans-serif`;
     ctx.fillStyle = '#242424';
-    ctx.fillText(node.label, node.x, node.y - 4);
+    ctx.fillText(node.label, node.x, node.y - radius - 4);
+    // Name below the node
+    ctx.textBaseline = 'top';
     ctx.font = `${fontSize * 0.7}px Inter, sans-serif`;
     ctx.fillStyle = '#666';
-    ctx.fillText(node.name || 'Unknown', node.x, node.y + 12);
+    ctx.fillText(node.name || 'Unknown', node.x, node.y + radius + 2);
   };
 
   // ---- Render edge label ----
@@ -438,6 +460,12 @@ const InvestigationPage: React.FC = () => {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
     ctx.fillText(label, midX, midY - 2);
+  };
+
+  // ---- Helper to check if edge is highlighted ----
+  const isEdgeHighlighted = (link: any) => {
+    const key = `${link.source.id || link.source}-${link.target.id || link.target}`;
+    return highlightedEdges.has(key);
   };
 
   return (
@@ -516,6 +544,8 @@ const InvestigationPage: React.FC = () => {
                       nodeColor={(node) => node.color || '#3B82F6'}
                       nodeVal={(node) => (highlightedPath.includes(node.id) ? 8 : 5)}
                       linkLabel={(link) => `Amount: ₹${link.amount || 0}`}
+                      linkWidth={(link) => isEdgeHighlighted(link) ? 3 : 1}
+                      linkColor={(link) => isEdgeHighlighted(link) ? '#E94532' : '#ccc'}
                       linkDirectionalArrowLength={3.5}
                       linkDirectionalArrowRelPos={1}
                       cooldownTicks={50}

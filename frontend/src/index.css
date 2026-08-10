@@ -1,14 +1,36 @@
 @import "tailwindcss";
 
+* {
+  box-sizing: border-box;
+}
+
 body {
   background-color: #F8F8F6;
   color: #242424;
   font-family: 'Inter', system-ui, sans-serif;
+  margin: 0;
+  min-width: 320px;
+  overflow-x: hidden;
 }
 
 /* Ensure all text has good contrast */
 * {
   color-scheme: light;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 @keyframes fadeIn {
@@ -17,4 +39,60 @@ body {
 }
 .dashboard-enter {
   animation: fadeIn 0.6s ease-out forwards;
+}
+
+@keyframes orbFloat {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-3px); }
+}
+
+@keyframes orbOrbit {
+  0% { transform: rotate(0deg) translateX(8px) rotate(0deg); opacity: 0.85; }
+  100% { transform: rotate(360deg) translateX(8px) rotate(-360deg); opacity: 0.45; }
+}
+
+@keyframes orbStream {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(220%); }
+}
+
+@keyframes orbRing {
+  0%, 100% { transform: scale(0.92); opacity: 0.25; }
+  50% { transform: scale(1.04); opacity: 0.45; }
+}
+
+@keyframes orbConnection {
+  0%, 100% { opacity: 0.15; transform: scaleX(0.7); }
+  50% { opacity: 0.8; transform: scaleX(1); }
+}
+
+.ai-orb-float {
+  animation: orbFloat 3.6s ease-in-out infinite;
+}
+
+.ai-orb-orbit {
+  animation: orbOrbit 2.8s linear infinite;
+}
+
+.ai-orb-orbit-delay {
+  animation-delay: 0.8s;
+}
+
+.ai-orb-stream {
+  animation: orbStream 1.3s linear infinite;
+}
+
+.ai-orb-ring {
+  animation: orbRing 1.8s ease-in-out infinite;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 9999px;
+}
+
+.ai-orb-connection {
+  animation: orbConnection 1.2s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.ai-orb-connection-delay {
+  animation-delay: 0.35s;
 }

@@ -153,7 +153,17 @@ def _build_case_response(result_state: dict) -> dict:
         "transaction_id": tx["transaction_id"],
         "customer_id": tx["customer_id"],
         "masked_account": "XXXX" + tx["source_account"][-4:],
+        "source_account": tx.get("source_account"),
+        "beneficiary_account": tx.get("beneficiary_account"),
         "amount": float(tx["amount"]),
+        "timestamp": tx.get("timestamp"),
+        "channel": tx.get("channel"),
+        "location": tx.get("location"),
+        "device_id": tx.get("device_id"),
+        "customer_avg_amount": float(tx.get("customer_avg_amount", 0) or 0),
+        "days_since_last_txn": int(tx.get("days_since_last_txn", 0) or 0),
+        "previous_alerts": int(tx.get("previous_alerts", 0) or 0),
+        "is_international": bool(tx.get("is_international", False)),
         "risk_score": int(result_state["rule_score"]),
         "risk_level": "Critical" if result_state["rule_score"] >= 86 else
                       "Very High" if result_state["rule_score"] >= 71 else
@@ -327,7 +337,8 @@ async def customer_history(customer_id: str, limit: int = 30):
     cur = conn.cursor()
     cur.execute("""
         SELECT transaction_id, amount, channel, location, timestamp,
-               days_since_last_txn, previous_alerts
+               days_since_last_txn, previous_alerts, source_account,
+               beneficiary_account, device_id
         FROM transactions
         WHERE customer_id = ?
         ORDER BY timestamp DESC
@@ -344,7 +355,10 @@ async def customer_history(customer_id: str, limit: int = 30):
             "location": row[3],
             "timestamp": row[4],
             "days_since_last_txn": row[5],
-            "previous_alerts": row[6]
+            "previous_alerts": row[6],
+            "source_account": row[7],
+            "beneficiary_account": row[8],
+            "device_id": row[9],
         })
     return history
 
@@ -466,26 +480,20 @@ async def get_graph(account: str):
 async def dashboard_stats():
     import sqlite3
     import json
-    from datetime import datetime, timedelta
+    from datetime import datetime
 
-    fallback = {
-        "totalTransactions": 36421,
-        "unusualTransactions": 250,
-        "verification": {"verified": 130, "fraudulent": 80, "unassigned": 40},
-        "alerts": [
-            {"client": "Johnson", "description": "12 transactions within 24h", "amount": 550000},
-            {"client": "Martha", "description": "25 transactions in same month", "amount": 2550000},
-            {"client": "Smith", "description": "Large international transfer", "amount": 89000},
-        ],
-        "investigations": [
-            {"bank": "Federal bank USA", "client": "Johnson", "assigned": "Agent smith", "progress": 2, "status": "Investigation opened"},
-            {"bank": "Bank", "client": "Martha", "assigned": "Agent", "progress": 3, "status": "In peer review"},
-        ],
+    empty_payload = {
+        "totalTransactions": 0,
+        "unusualTransactions": 0,
+        "verification": {"verified": 0, "fraudulent": 0, "unassigned": 0},
+        "verificationActivity": [],
+        "alerts": [],
+        "investigations": [],
         "chartData": [
-            {"category": "Valid", "count": 120},
-            {"category": "Fraud", "count": 80},
-            {"category": "Unassigned", "count": 40},
-        ]
+            {"category": "Valid", "count": 0},
+            {"category": "Fraud", "count": 0},
+            {"category": "Unassigned", "count": 0},
+        ],
     }
 
     try:
@@ -497,7 +505,7 @@ async def dashboard_stats():
             "SELECT COUNT(*) FROM transactions WHERE amount > 3 * customer_avg_amount OR previous_alerts >= 2"
         ).fetchone()[0]
 
-        # Verification from cases (fallback if empty)
+        # Verification from cases
         cases = cur.execute("SELECT result_json FROM cases").fetchall()
         verified = 0
         fraudulent = 0
@@ -511,52 +519,230 @@ async def dashboard_stats():
                 unassigned += 1
             else:
                 verified += 1
-        if verified == 0 and fraudulent == 0 and unassigned == 0:
-            verified = 130
-            fraudulent = 80
-            unassigned = 40
 
-        # Alerts
-        alerts_rows = cur.execute("""
-            SELECT t.customer_id, t.amount, c.name 
-            FROM transactions t 
-            JOIN customers c ON t.customer_id = c.customer_id 
-            WHERE t.amount > 3 * t.customer_avg_amount OR t.previous_alerts >= 2 
-            ORDER BY t.amount DESC 
-            LIMIT 3
+        # Detailed verification activity for dashboard filters
+        verification_rows = cur.execute("""
+            SELECT
+                c.case_id,
+                c.transaction_id,
+                c.updated_at,
+                c.result_json,
+                t.customer_id,
+                t.source_account,
+                t.beneficiary_account,
+                t.amount,
+                t.timestamp,
+                cust.name
+            FROM cases c
+            LEFT JOIN transactions t ON t.transaction_id = c.transaction_id
+            LEFT JOIN customers cust ON cust.customer_id = t.customer_id
+            ORDER BY COALESCE(c.updated_at, t.timestamp) DESC
+            LIMIT 200
         """).fetchall()
+
+        verification_activity = []
+        for row in verification_rows:
+            result_json = row[3]
+            result = json.loads(result_json) if result_json else {}
+            case_risk_score = int(result.get("risk_score", 0) or 0)
+            if case_risk_score >= 70:
+                risk_level = "High"
+            elif case_risk_score >= 40:
+                risk_level = "Medium"
+            else:
+                risk_level = "Low"
+            verification_activity.append({
+                "case_id": row[0],
+                "transaction_id": row[1],
+                "updated_at": row[2] or row[8],
+                "customer_id": row[4] or result.get("customer_id", "Unknown"),
+                "customer_name": row[9] or "Unknown",
+                "source_account": row[5] or "Unknown",
+                "beneficiary_account": row[6] or "Unknown",
+                "amount": float(row[7] or result.get("amount", 0) or 0),
+                "risk_score": case_risk_score,
+                "risk_level": risk_level,
+                "status": result.get("status", "Unknown"),
+                "investigation_status": "Complete" if result.get("status") != "Awaiting Human Review" else "Awaiting Human Review",
+            })
+
+        # Alerts with evidence, status, and historical comparison
+        alerts_rows = cur.execute("""
+            SELECT
+                t.transaction_id,
+                t.customer_id,
+                c.name,
+                t.source_account,
+                t.beneficiary_account,
+                t.amount,
+                t.customer_avg_amount,
+                t.previous_alerts,
+                t.days_since_last_txn,
+                t.channel,
+                t.location,
+                t.timestamp,
+                t.is_international,
+                COALESCE(json_extract(cs.result_json, '$.status'), 'Not Investigated') AS investigation_status
+            FROM transactions t
+            JOIN customers c ON t.customer_id = c.customer_id
+            LEFT JOIN cases cs ON cs.transaction_id = t.transaction_id
+            WHERE t.amount > 3 * t.customer_avg_amount
+               OR t.previous_alerts >= 2
+               OR t.days_since_last_txn >= 180
+            ORDER BY t.amount DESC 
+            LIMIT 20
+        """).fetchall()
+
         alerts = []
         for row in alerts_rows:
-            alerts.append({
-                "client": row[2] if row[2] else "Unknown",
-                "description": "unusual transaction amount",
-                "amount": row[1]
-            })
-        if not alerts:
-            alerts = [{"client": "No alerts", "description": "", "amount": 0}]
+            avg_amount = float(row[6] or 0)
+            amount = float(row[5] or 0)
+            ratio = amount / max(avg_amount, 1)
+            previous_alerts = int(row[7] or 0)
+            dormant_days = int(row[8] or 0)
+            is_international = bool(row[12] or 0)
 
-        # Investigations
+            risk_score = 0
+            risk_signals = []
+
+            if ratio >= 3:
+                ratio_score = 35 if ratio < 10 else 45
+                risk_score += ratio_score
+                risk_signals.append({
+                    "signal": "Unusual Amount",
+                    "severity": "High" if ratio >= 5 else "Medium",
+                    "evidence": f"Amount is {ratio:.1f}x the customer baseline.",
+                    "comparison": {
+                        "transaction_amount": amount,
+                        "baseline_amount": avg_amount,
+                        "multiplier": round(ratio, 2),
+                    },
+                })
+
+            if previous_alerts >= 2:
+                risk_score += 25
+                risk_signals.append({
+                    "signal": "Velocity Anomaly",
+                    "severity": "High",
+                    "evidence": f"{previous_alerts} prior alerts exist for this customer.",
+                    "comparison": {
+                        "previous_alerts": previous_alerts,
+                    },
+                })
+
+            if dormant_days >= 180:
+                risk_score += 20
+                risk_signals.append({
+                    "signal": "Dormant Reactivation",
+                    "severity": "Medium",
+                    "evidence": f"Account inactive for {dormant_days} days before this transaction.",
+                    "comparison": {
+                        "days_since_last_transaction": dormant_days,
+                    },
+                })
+
+            if is_international:
+                risk_score += 15
+                risk_signals.append({
+                    "signal": "International Route",
+                    "severity": "Medium",
+                    "evidence": "Transaction marked as international.",
+                    "comparison": {
+                        "is_international": True,
+                    },
+                })
+
+            risk_score = min(100, risk_score)
+            if risk_score >= 80:
+                risk_level = "High"
+            elif risk_score >= 45:
+                risk_level = "Medium"
+            else:
+                risk_level = "Low"
+
+            flagged_reason = ", ".join(signal["signal"] for signal in risk_signals[:3]) or "Manual review suggested"
+
+            alerts.append({
+                "transaction_id": row[0],
+                "customer_id": row[1],
+                "customer_name": row[2] if row[2] else "Unknown",
+                "source_account": row[3],
+                "beneficiary_account": row[4],
+                "amount": amount,
+                "channel": row[9],
+                "location": row[10],
+                "timestamp": row[11],
+                "risk_score": risk_score,
+                "risk_level": risk_level,
+                "flagged_reason": flagged_reason,
+                "risk_signals": risk_signals,
+                "historical_comparison": {
+                    "customer_avg_amount": avg_amount,
+                    "amount_multiplier": round(ratio, 2),
+                    "previous_alerts": previous_alerts,
+                    "days_since_last_transaction": dormant_days,
+                },
+                "investigation_status": row[13],
+                "recommended_next_action": "Open investigation and validate beneficiary relationship." if risk_score >= 70 else "Monitor and verify customer intent.",
+                # legacy keys for backward compatibility
+                "client": row[2] if row[2] else "Unknown",
+                "description": flagged_reason,
+            })
+
+        # Investigations from completed cases with explicit stage model
         investigations = []
         cases_rows = cur.execute("""
-            SELECT result_json FROM cases 
-            WHERE json_extract(result_json, '$.status') IN ('Awaiting Human Review', 'Human Decision Recorded')
+            SELECT case_id, transaction_id, result_json, updated_at
+            FROM cases
+            ORDER BY COALESCE(updated_at, datetime('now')) DESC
+            LIMIT 20
         """).fetchall()
         for row in cases_rows:
-            result = json.loads(row[0])
-            investigations.append({
-                "bank": "Bank",
-                "client": result.get('customer_id', ''),
-                "assigned": "Agent",
-                "progress": 2,
-                "status": result.get('status', '')
-            })
-        if not investigations:
-            investigations = [
-                {"bank": "Federal bank USA", "client": "Johnson", "assigned": "Agent smith", "progress": 2, "status": "Investigation opened"},
-                {"bank": "Bank", "client": "Martha", "assigned": "Agent", "progress": 3, "status": "In peer review"},
+            result = json.loads(row[2])
+            final_status = result.get("status", "Unknown")
+            stage_sequence = [
+                "Transaction ingestion",
+                "Customer history retrieved",
+                "Historical transactions analyzed",
+                "Network relationships analyzed",
+                "Risk pattern comparison",
+                "Investigation summary generated",
             ]
 
-        # ----- NEW CHART DATA: total counts per category -----
+            if final_status in ("Awaiting Human Review", "Human Decision Recorded", "Closed - Low Risk"):
+                completed_steps = stage_sequence
+                active_step = "Awaiting Human decision" if final_status == "Awaiting Human Review" else "Completed"
+                pending_steps = ["Human review"] if final_status == "Awaiting Human Review" else []
+                progress_pct = 85 if final_status == "Awaiting Human Review" else 100
+                agent_status = "Awaiting human reviewer" if final_status == "Awaiting Human Review" else "Completed"
+            else:
+                completed_steps = stage_sequence[:4]
+                active_step = "Risk pattern comparison"
+                pending_steps = stage_sequence[4:]
+                progress_pct = 65
+                agent_status = "In progress"
+
+            investigations.append({
+                "investigation_id": row[0],
+                "transaction_id": row[1],
+                "customer_id": result.get("customer_id", "Unknown"),
+                "risk_score": int(result.get("risk_score", 0) or 0),
+                "status": final_status,
+                "current_stage": active_step,
+                "progress_pct": progress_pct,
+                "completed_steps": completed_steps,
+                "active_step": active_step,
+                "pending_steps": pending_steps,
+                "last_updated": row[3] or result.get("created_at") or datetime.now().isoformat(),
+                "agent_status": agent_status,
+                # legacy keys for backward compatibility
+                "bank": "FraudShield",
+                "client": result.get("customer_id", "Unknown"),
+                "assigned": "AI Supervisor",
+                "progress": max(1, round(progress_pct / 20)),
+            })
+
+        # Chart data: total counts per category
         valid_count = cur.execute("""
             SELECT COUNT(*) FROM transactions 
             WHERE amount <= 3 * customer_avg_amount 
@@ -587,13 +773,14 @@ async def dashboard_stats():
             "totalTransactions": total,
             "unusualTransactions": unusual,
             "verification": {"verified": verified, "fraudulent": fraudulent, "unassigned": unassigned},
+            "verificationActivity": verification_activity,
             "alerts": alerts,
             "investigations": investigations,
             "chartData": chart_data
         }
     except Exception as e:
         print(f"Dashboard stats error: {e}")
-        return fallback
+        return empty_payload
 
 @app.get("/recent-transactions")
 async def recent_transactions(limit: int = 10):

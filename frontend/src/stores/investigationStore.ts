@@ -5,8 +5,16 @@ export interface InvestigationResult {
   transaction_id: string;
   customer_id: string;
   amount: number;
+  timestamp?: string;
+  channel?: string;
+  location?: string;
+  device_id?: string;
   source_account?: string;
   beneficiary_account?: string;
+  customer_avg_amount?: number;
+  days_since_last_txn?: number;
+  previous_alerts?: number;
+  is_international?: boolean;
   risk_score: number;
   risk_level: string;
   recommendation: string;

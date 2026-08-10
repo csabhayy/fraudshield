@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { Activity } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { formatCurrencyINR, formatTime, safeText } from '../utils/format';
 
 interface Tx {
   id: string;
@@ -11,7 +12,6 @@ interface Tx {
   channel: string;
   location: string;
   timestamp: string;
-  story: string;
 }
 
 const RecentTransactions: React.FC = () => {
@@ -40,6 +40,9 @@ const RecentTransactions: React.FC = () => {
         <h3 className="font-serif font-bold text-[#242424]">Live Transactions</h3>
         <span className="ml-auto text-xs text-green-600 font-medium">● Live</span>
       </div>
+      <p className="text-xs text-gray-500 mb-2">
+        Raw stream only. Run investigation to get AI fraud verdict.
+      </p>
       <div className="overflow-auto flex-1 max-h-60">
         <table className="w-full text-sm">
           <thead className="border-b border-[#4A4A4A]">
@@ -47,8 +50,8 @@ const RecentTransactions: React.FC = () => {
               <th className="py-1 pr-2">Amount</th>
               <th className="py-1 pr-2">Channel</th>
               <th className="py-1 pr-2">Location</th>
-              <th className="py-1 pr-2">Status</th>
               <th className="py-1">Time</th>
+              <th className="py-1 pl-2 text-right">Action</th>
             </tr>
           </thead>
           <tbody>
@@ -58,20 +61,24 @@ const RecentTransactions: React.FC = () => {
                 className="border-b border-gray-100 hover:bg-gray-50 transition-colors cursor-pointer"
                 onClick={() => handleRowClick(tx.id)}
               >
-                <td className="py-1.5 pr-2 font-medium">₹{tx.amount.toLocaleString()}</td>
-                <td className="py-1.5 pr-2 text-gray-700">{tx.channel}</td>
-                <td className="py-1.5 pr-2 text-gray-700">{tx.location}</td>
-                <td className="py-1.5 pr-2">
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                    tx.story === 'Normal' ? 'bg-green-100 text-green-800' :
-                    tx.story.includes('Fraud') ? 'bg-red-100 text-red-800' :
-                    'bg-yellow-100 text-yellow-800'
-                  }`}>
-                    {tx.story}
-                  </span>
-                </td>
+                <td className="py-1.5 pr-2 font-medium">{formatCurrencyINR(tx.amount)}</td>
+                <td className="py-1.5 pr-2 text-gray-700">{safeText(tx.channel)}</td>
+                <td className="py-1.5 pr-2 text-gray-700">{safeText(tx.location)}</td>
                 <td className="py-1.5 text-gray-500 text-xs whitespace-nowrap">
-                  {new Date(tx.timestamp).toLocaleTimeString()}
+                  {formatTime(tx.timestamp)}
+                </td>
+                <td className="py-1.5 pl-2 text-right">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1.5 rounded-full border border-[#E94532]/30 bg-[#FFF4F1] px-2.5 py-1 text-[11px] font-semibold text-[#B3301F] hover:bg-[#FFE7E2] transition-colors"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRowClick(tx.id);
+                    }}
+                  >
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#E94532] animate-pulse" />
+                    Investigate
+                  </button>
                 </td>
               </tr>
             ))}

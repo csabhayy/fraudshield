@@ -2,8 +2,8 @@ import React from 'react';
 
 const DashboardFooter: React.FC = () => {
   return (
-    <div className="text-center text-xs text-gray mt-8 border-t border-border pt-4">
-      This graph/chart is linked to excel, and changes automatically based on data. Just left click on it and select "Edit Data".
+    <div className="text-center text-xs text-gray-500 mt-8 border-t border-gray-200 pt-4">
+      Live feed and investigation outcomes refresh continuously. Investigations are generated from current transaction and case data.
     </div>
   );
 };

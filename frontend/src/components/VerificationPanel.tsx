@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import type { VerificationActivityItem } from '../types/dashboard';
-import { safeText } from '../utils/format';
 
 interface VerificationData {
   verified: number;
@@ -22,37 +21,30 @@ const VerificationPanel: React.FC<VerificationPanelProps> = ({ data, activity })
   const [customEnd, setCustomEnd] = useState('');
 
   const filteredActivity = useMemo(() => {
-    if (!activity || activity.length === 0) {
-      return [];
-    }
-
+    if (!activity || activity.length === 0) return [];
     const now = new Date();
     const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
     return activity.filter((item) => {
       const txDate = new Date(item.updated_at);
       if (Number.isNaN(txDate.getTime())) return false;
-
-      if (preset === 'today') {
-        return txDate >= dayStart;
-      }
+      if (preset === 'today') return txDate >= dayStart;
       if (preset === 'yesterday') {
-        const yesterdayStart = new Date(dayStart);
-        yesterdayStart.setDate(dayStart.getDate() - 1);
-        return txDate >= yesterdayStart && txDate < dayStart;
+        const prev = new Date(dayStart);
+        prev.setDate(prev.getDate() - 1);
+        return txDate >= prev && txDate < dayStart;
       }
       if (preset === '7d') {
-        const threshold = new Date(now);
-        threshold.setDate(now.getDate() - 7);
-        return txDate >= threshold;
+        const prev = new Date(now);
+        prev.setDate(now.getDate() - 7);
+        return txDate >= prev;
       }
       if (preset === '30d') {
-        const threshold = new Date(now);
-        threshold.setDate(now.getDate() - 30);
-        return txDate >= threshold;
+        const prev = new Date(now);
+        prev.setDate(now.getDate() - 30);
+        return txDate >= prev;
       }
-      if (preset === 'custom') {
-        if (!customStart || !customEnd) return true;
+      if (preset === 'custom' && customStart && customEnd) {
         const start = new Date(`${customStart}T00:00:00`);
         const end = new Date(`${customEnd}T23:59:59`);
         return txDate >= start && txDate <= end;
@@ -62,14 +54,12 @@ const VerificationPanel: React.FC<VerificationPanelProps> = ({ data, activity })
   }, [activity, preset, customStart, customEnd]);
 
   const derivedCounts = useMemo(() => {
-    if (filteredActivity.length === 0) {
-      return data;
-    }
+    if (!filteredActivity.length) return data;
     let verified = 0;
     let fraudulent = 0;
     let unassigned = 0;
     filteredActivity.forEach((item) => {
-      const score = item.risk_score || 0;
+      const score = item.risk_score ?? 0;
       if (score >= 70) fraudulent += 1;
       else if (score >= 30) unassigned += 1;
       else verified += 1;
@@ -77,148 +67,76 @@ const VerificationPanel: React.FC<VerificationPanelProps> = ({ data, activity })
     return { verified, fraudulent, unassigned };
   }, [filteredActivity, data]);
 
-  const activeFilterLabel =
-    preset === 'today' ? 'Today' :
-    preset === 'yesterday' ? 'Yesterday' :
-    preset === '7d' ? 'Last 7 Days' :
-    preset === '30d' ? 'Last 30 Days' :
-    'Custom Range';
-
   const pieData = [
-    { name: 'Verified', value: derivedCounts.verified, color: '#C62828' },
-    { name: 'Fraudulent', value: derivedCounts.fraudulent, color: '#E53935' },
-    { name: 'Unassigned', value: derivedCounts.unassigned, color: '#EF9A9A' },
+    { name: 'Verified', value: derivedCounts.verified, color: '#81c995' },
+    { name: 'Fraudulent', value: derivedCounts.fraudulent, color: '#f28b82' },
+    { name: 'Review', value: derivedCounts.unassigned, color: '#fdd663' },
   ];
 
-  const renderTooltip = ({ active, payload }: any) => {
-    if (active && payload && payload.length) {
-      const entry = payload[0];
-      const total = derivedCounts.verified + derivedCounts.fraudulent + derivedCounts.unassigned;
-      const percentage = total > 0 ? ((entry.value / total) * 100).toFixed(1) : 0;
-      return (
-        <div className="bg-white border border-[#4A4A4A] rounded-md p-2 text-sm text-[#242424] shadow-sm">
-          <div className="font-semibold">{entry.name}</div>
-          <div>{entry.value} transactions</div>
-          <div className="text-xs text-[#666]">{percentage}% of total</div>
-        </div>
-      );
-    }
-    return null;
-  };
-
   return (
-    <div className="border border-[#4A4A4A] rounded-md bg-white p-4 h-full flex flex-col min-h-[360px]">
-      <div className="flex justify-center mb-3">
-        <div className="bg-[#E94532] text-white px-6 py-1 rounded-full text-sm font-serif font-bold">
-          Verification
+    <div className="rounded-3xl bg-[#16171a] p-5 ring-1 ring-white/5 text-[#e3e3e3]">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h3 className="text-lg font-semibold">Verification</h3>
+          <p className="text-sm text-[#9ca3af]">{filteredActivity.length ? `${filteredActivity.length} records` : 'No recent activity'}</p>
         </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2 mb-2">
-        {[
-          { id: 'today', label: 'Today' },
-          { id: 'yesterday', label: 'Yesterday' },
-          { id: '7d', label: 'Last 7 Days' },
-          { id: '30d', label: 'Last 30 Days' },
-          { id: 'custom', label: 'Custom Range' },
-        ].map((option) => (
-          <button
-            key={option.id}
-            type="button"
-            onClick={() => setPreset(option.id as FilterPreset)}
-            className={`rounded-full px-2.5 py-1 text-[11px] border transition-colors ${
-              preset === option.id
-                ? 'bg-[#E94532] text-white border-[#E94532]'
-                : 'bg-white text-gray-600 border-gray-300 hover:border-[#E94532]/40'
-            }`}
-          >
-            {option.label}
-          </button>
-        ))}
+        <div className="flex flex-wrap gap-2">
+          {['today', 'yesterday', '7d', '30d', 'custom'].map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => setPreset(option as FilterPreset)}
+              className={`rounded-full px-3 py-1 text-xs font-semibold transition ${
+                preset === option ? 'bg-[#8ab4f8] text-[#131313]' : 'bg-[#131314] text-[#9ca3af] hover:bg-[#1f2124]'
+              }`}
+            >
+              {option === '7d' ? '7D' : option === '30d' ? '30D' : option === 'custom' ? 'Custom' : option.charAt(0).toUpperCase() + option.slice(1)}
+            </button>
+          ))}
+        </div>
       </div>
 
       {preset === 'custom' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <input
             type="date"
             value={customStart}
             onChange={(e) => setCustomStart(e.target.value)}
-            className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-xs"
-            aria-label="Custom start date"
+            className="rounded-2xl border border-[#2f3032] bg-[#131314] px-3 py-2 text-sm text-[#e3e3e3]"
           />
           <input
             type="date"
             value={customEnd}
             onChange={(e) => setCustomEnd(e.target.value)}
-            className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-xs"
-            aria-label="Custom end date"
+            className="rounded-2xl border border-[#2f3032] bg-[#131314] px-3 py-2 text-sm text-[#e3e3e3]"
           />
         </div>
       )}
 
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="font-serif text-lg font-bold text-[#242424]">{activeFilterLabel}</h3>
-        <button
-          type="button"
-          onClick={() => {
-            setPreset('today');
-            setCustomStart('');
-            setCustomEnd('');
-          }}
-          className="text-xs text-gray-500 hover:text-[#E94532]"
-        >
-          Reset filter
-        </button>
-      </div>
-
-      <div className="flex-1 flex items-center justify-center min-h-[210px]">
-        <ResponsiveContainer width="100%" height={210}>
-          <PieChart>
-            <Pie
-              data={pieData}
-              cx="50%"
-              cy="50%"
-              innerRadius={50}
-              outerRadius={70}
-              paddingAngle={2}
-              dataKey="value"
-              label={({ percent }) => {
-                const pct = percent ?? 0;
-                return `${(pct * 100).toFixed(0)}%`;
-              }}
-              labelLine={false}
-              stroke="#ffffff"
-              strokeWidth={2}
-            >
-              {pieData.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={entry.color} />
-              ))}
-            </Pie>
-            <Tooltip content={renderTooltip} />
-          </PieChart>
-        </ResponsiveContainer>
-      </div>
-      <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 mt-2 text-xs font-sans text-[#242424]">
-        <div>
-          <span className="inline-block w-3 h-3 bg-[#C62828] rounded-sm mr-1"></span>
-          {derivedCounts.verified} Verified
+      <div className="mt-5 grid gap-5 lg:grid-cols-[1fr_0.9fr] items-center">
+        <div className="h-52">
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie data={pieData} innerRadius={40} outerRadius={72} dataKey="value" stroke="#14171a">
+                {pieData.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={entry.color} />
+                ))}
+              </Pie>
+              <Tooltip contentStyle={{ backgroundColor: '#111318', border: '1px solid #2f3032' }} itemStyle={{ color: '#e3e3e3' }} />
+            </PieChart>
+          </ResponsiveContainer>
         </div>
-        <div>
-          <span className="inline-block w-3 h-3 bg-[#E53935] rounded-sm mr-1"></span>
-          {derivedCounts.fraudulent} Fraudulent
+        <div className="grid gap-3">
+          {pieData.map((entry) => (
+            <div key={entry.name} className="flex items-center justify-between rounded-2xl bg-[#141517] px-4 py-3 text-sm text-[#e3e3e3]">
+              <div className="flex items-center gap-2">
+                <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
+                <span>{entry.name}</span>
+              </div>
+              <span>{entry.value}</span>
+            </div>
+          ))}
         </div>
-        <div>
-          <span className="inline-block w-3 h-3 bg-[#EF9A9A] rounded-sm mr-1"></span>
-          {derivedCounts.unassigned} Unassigned
-        </div>
-      </div>
-
-      <div className="mt-3 rounded-md border border-gray-200 p-2 text-xs text-gray-600">
-        Active filter: <span className="font-medium text-[#242424]">{safeText(activeFilterLabel)}</span>
-        {' · '}
-        {filteredActivity.length > 0
-          ? `${filteredActivity.length} records`
-          : 'Using aggregate counts'}
       </div>
     </div>
   );

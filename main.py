@@ -1,7 +1,6 @@
 """FraudShield API – investigation, chat, and graph endpoints."""
 import os
 import requests
-import numpy as np
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
@@ -15,7 +14,7 @@ from datetime import datetime, timedelta
 import sqlite3
 
 from agents.workflow import build_investigation_workflow
-from services.data_service import load_transactions, save_case, load_cases, get_customer
+from services.data_service import load_transactions, save_case, load_cases, get_customer, convert_numpy
 from services.vector_service import VectorService
 from services.graph_service import Neo4jClient
 from services.transaction_generator import start_generator
@@ -31,20 +30,7 @@ from agents.nodes import (
 load_dotenv()
 
 # ------- Helper: Convert NumPy types to Python types for JSON -------
-def convert_numpy(obj):
-    """Recursively convert NumPy types to native Python types."""
-    if isinstance(obj, np.integer):
-        return int(obj)
-    elif isinstance(obj, np.floating):
-        return float(obj)
-    elif isinstance(obj, np.ndarray):
-        return obj.tolist()
-    elif isinstance(obj, dict):
-        return {k: convert_numpy(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [convert_numpy(v) for v in obj]
-    else:
-        return obj
+# Reuse the shared data service helper to ensure consistent serialization across the app.
 
 # ------- Lifespan (replaces deprecated on_event) -------
 @asynccontextmanager
@@ -224,7 +210,7 @@ def _persist_case(final_case: dict):
 
 
 def _sse_event(event_name: str, payload: dict) -> str:
-    return f"event: {event_name}\ndata: {json.dumps(convert_numpy(payload))}\n\n"
+    return f"event: {event_name}\ndata: {json.dumps(convert_numpy(payload), default=str)}\n\n"
 
 # ------- Endpoints -------
 @app.post("/investigate")
@@ -369,7 +355,22 @@ async def chat(req: ChatRequest):
     from services.data_service import load_cases, get_customer
 
     cases = load_cases()
-    case = next((c for c in cases if c["case_id"] == req.case_id), None)
+    requested_id = req.case_id.strip()
+
+    if requested_id.lower() == 'general_query':
+        case = cases[-1] if cases else None
+    else:
+        if requested_id.startswith("TXN-") and not requested_id.startswith("FS-"):
+            requested_id = f"FS-{requested_id}"
+
+        case = next(
+            (
+                c for c in cases
+                if c.get("case_id") == requested_id or c.get("transaction_id") == req.case_id
+            ),
+            None,
+        )
+
     if not case:
         raise HTTPException(404, "Case not found")
 

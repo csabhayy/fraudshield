@@ -25,19 +25,31 @@ CUSTOMERS_PATH = DATA_DIR / "customers.csv"
 MERCHANTS_PATH = DATA_DIR / "merchants.csv"
 
 def convert_numpy(obj):
-    """Recursively convert NumPy types to Python types for JSON serialization."""
-    if isinstance(obj, np.integer):
-        return int(obj)
-    elif isinstance(obj, np.floating):
-        return float(obj)
+    """Recursively convert NumPy, pandas, and native date/time types to JSON-safe Python types."""
+    if isinstance(obj, (np.integer, np.floating, np.bool_, np.generic)):
+        try:
+            return obj.item()
+        except Exception:
+            return obj
+    elif isinstance(obj, (datetime,)):
+        return obj.isoformat()
+    elif isinstance(obj, getattr(pd, 'Timestamp', ())):
+        return obj.isoformat()
+    elif obj is pd.NaT:
+        return None
     elif isinstance(obj, np.ndarray):
-        return obj.tolist()
+        return [convert_numpy(v) for v in obj.tolist()]
     elif isinstance(obj, dict):
         return {k: convert_numpy(v) for k, v in obj.items()}
     elif isinstance(obj, list):
         return [convert_numpy(v) for v in obj]
+    elif isinstance(obj, tuple):
+        return [convert_numpy(v) for v in obj]
+    elif isinstance(obj, set):
+        return [convert_numpy(v) for v in obj]
     else:
         return obj
+
 
 def generate_customers(n=40, seed=42):
     """Generate Indian customer profiles."""

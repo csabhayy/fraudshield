@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { animated, useSpring } from '@react-spring/web';
 import {
@@ -9,9 +9,7 @@ import {
   Copy,
   Download,
   Loader2,
-  Send,
   Sparkles,
-  X,
 } from 'lucide-react';
 import { streamInvestigation, type InvestigationStageUpdate } from '../hooks/useInvestigation';
 import { useChat } from '../hooks/useChat';
@@ -61,11 +59,16 @@ interface CustomerHistoryItem {
   device_id?: string;
 }
 
+type TraceMode = 'idle' | 'walking';
+
+type AnalystDecision = 'approve' | 'reject' | 'escalate' | null;
+
 interface ReportGenerationState {
   running: boolean;
   completed: boolean;
   stageIndex: number;
   report: string;
+  durations: Record<number, number> & { total?: number };
 }
 
 interface StoryNode {
@@ -190,23 +193,23 @@ const REPORT_STEPS = [
 ];
 
 const kindToneClasses: Record<VisualTone, string> = {
-  neutral: 'border-gray-200 bg-white text-[#242424]',
-  accent: 'border-[#E94532]/30 bg-[#FFF7F5] text-[#242424]',
-  risk: 'border-red-200 bg-red-50 text-[#242424]',
-  support: 'border-blue-200 bg-blue-50 text-[#242424]',
+  neutral: 'border border-[#2f3032] bg-[#141517] text-[#e3e3e3]',
+  accent: 'border border-[#24396f] bg-[#1b263f] text-[#e3e3e3]',
+  risk: 'border border-[#632d33] bg-[#271a1d] text-[#f8d7da]',
+  support: 'border border-[#1b2f44] bg-[#151f2f] text-[#cde7ff]',
 };
 
 const kindBadgeClasses: Record<VisualNodeKind, string> = {
-  customer: 'bg-[#E8F3ED] text-[#1E5C45]',
-  account: 'bg-[#EAF3FF] text-[#1F4E8C]',
-  transaction: 'bg-[#FFF0EC] text-[#B3301F]',
-  beneficiary: 'bg-[#F2ECFF] text-[#6F42C1]',
-  device: 'bg-[#FFF7E7] text-[#9A6700]',
-  location: 'bg-[#F2F4F7] text-[#475467]',
+  customer: 'bg-[#1b2c33] text-[#80d1d9]',
+  account: 'bg-[#182136] text-[#8ab4f8]',
+  transaction: 'bg-[#2b1f23] text-[#ffb8b3]',
+  beneficiary: 'bg-[#2a2138] text-[#cda4ff]',
+  device: 'bg-[#252117] text-[#f8e5b2]',
+  location: 'bg-[#20282f] text-[#a3b6c8]',
 };
 
-const edgeStroke = '#A4ACB9';
-const suspiciousEdgeStroke = '#E94532';
+const edgeStroke = '#4b5563';
+const suspiciousEdgeStroke = '#e94532';
 
 const maskAccount = (value: string, fallback = 'Information unavailable'): string => {
   const text = safeText(value, '');
@@ -262,20 +265,25 @@ const InvestigationPage: React.FC = () => {
   );
   const [stageDurations, setStageDurations] = useState<Record<string, number>>({});
   const [activeStageId, setActiveStageId] = useState<AgentStepId | null>(null);
-  const [focusSuspiciousPath, setFocusSuspiciousPath] = useState(true);
+  const [traceMode, setTraceMode] = useState<TraceMode>('idle');
+  const [traceStep, setTraceStep] = useState(0);
+  const [focusSuspiciousPath, setFocusSuspiciousPath] = useState(false);
   const [animationStep, setAnimationStep] = useState(0);
+  const reportTimersRef = useRef<number[]>([]);
+  const reportStartRef = useRef<number | null>(null);
+  const reportPreviousTimeRef = useRef<number | null>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [hoveredLinkId, setHoveredLinkId] = useState<string | null>(null);
   const [showDetailedReasoning, setShowDetailedReasoning] = useState(false);
-  const [aiOrbExpanded, setAiOrbExpanded] = useState(false);
-  const [aiChatInput, setAiChatInput] = useState('');
-  const [aiResponse, setAiResponse] = useState('');
+  const [decision, setDecision] = useState<AnalystDecision>(null);
+  const [decisionReason, setDecisionReason] = useState('');
   const [isAiTyping, setIsAiTyping] = useState(false);
   const [reportState, setReportState] = useState<ReportGenerationState>({
     running: false,
     completed: false,
     stageIndex: -1,
     report: '',
+    durations: {},
   });
   const [graphWidth, setGraphWidth] = useState(960);
 
@@ -298,7 +306,6 @@ const InvestigationPage: React.FC = () => {
     setRuntimeStatus('RUNNING');
     setOrbState('investigating');
     setIsStreaming(true);
-    setAiResponse('');
     setAnimationStep(0);
     setActiveStageId(null);
     setStageState(Object.fromEntries(STAGE_DEFINITIONS.map((stage) => [stage.id, 'pending'])) as Record<AgentStepId, StepStatus>);
@@ -471,6 +478,44 @@ const InvestigationPage: React.FC = () => {
     steps.push(`${safeText(caseData.risk_level)} fraud risk — ${safeNumber(caseData.risk_score, 0)}/100`);
     return steps;
   }, [amountMultiplier, caseData, newBeneficiary, suspiciousReasons, velocityInsight.count, velocityInsight.minutes]);
+
+  const storyTimeline = useMemo(() => {
+    if (!caseData) {
+      return [] as Array<{ label: string; headline: string; detail: string }>;  }
+    return [
+      {
+        label: 'Customer',
+        headline: safeText(caseData.customer_id, 'Unknown'),
+        detail: `${customerHistory.length} historical txns`,
+      },
+      {
+        label: 'Account',
+        headline: maskAccount(safeText(caseData.source_account, 'Unknown')),
+        detail: safeText(caseData.channel, 'Payment method'),
+      },
+      {
+        label: 'Transaction',
+        headline: formatCurrencyINR(caseData.amount),
+        detail: `${amountMultiplier.toFixed(1)}x normal`,
+      },
+      {
+        label: 'Beneficiary',
+        headline: maskAccount(safeText(caseData.beneficiary_account, 'Unknown')),
+        detail: newBeneficiary ? 'First observed relationship' : 'Known beneficiary',
+      },
+      {
+        label: 'Velocity',
+        headline: velocityInsight.count >= 4 ? `${velocityInsight.count} txns` : 'Normal',
+        detail: velocityInsight.count >= 4 ? `${velocityInsight.minutes || 12} min span` : 'Within range',
+      },
+      {
+        label: 'Risk',
+        headline: `${safeNumber(caseData.risk_score, 0)}/100`,
+        detail: safeText(caseData.risk_level, 'Unknown'),
+      },
+    ];
+  }, [amountMultiplier, caseData, customerHistory.length, newBeneficiary, velocityInsight.count, velocityInsight.minutes]);
+
 
   const visualSummary = useMemo(() => {
     if (!caseData) {
@@ -838,6 +883,22 @@ const InvestigationPage: React.FC = () => {
     };
   }, [graphModel.links, graphModel.nodes.length, id]);
 
+  const traceNodes = useMemo(() => {
+    const order: VisualNodeKind[] = ['customer', 'account', 'transaction', 'beneficiary', 'device', 'location'];
+    return order.flatMap((kind) => graphModel.nodes.filter((node) => node.kind === kind));
+  }, [graphModel.nodes]);
+
+  const activeTraceNode = useMemo(() => {
+    return traceStep > 0 && traceNodes.length ? traceNodes[Math.min(traceStep - 1, traceNodes.length - 1)] : null;
+  }, [traceNodes, traceStep]);
+
+  useEffect(() => {
+    return () => {
+      reportTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+      reportTimersRef.current = [];
+    };
+  }, []);
+
   const orbAnimation = useSpring({
     to:
       orbState === 'complete'
@@ -869,23 +930,43 @@ const InvestigationPage: React.FC = () => {
 
   const handleBack = () => navigate('/');
 
-  const runAiChat = async (queryOverride?: string) => {
-    const prompt = safeText(queryOverride ?? aiChatInput, '');
+  const beginTraceWalk = () => {
+    if (!traceNodes.length) {
+      return;
+    }
+    setTraceMode('walking');
+    setTraceStep(1);
+  };
+
+  const advanceTraceStep = (delta: number) => {
+    setTraceStep((prev) => {
+      const next = Math.min(Math.max(prev + delta, 0), traceNodes.length);
+      if (!next) {
+        setTraceMode('idle');
+      }
+      return next;
+    });
+  };
+
+  const stopTraceWalk = () => {
+    setTraceMode('idle');
+    setTraceStep(0);
+  };
+
+  const runAiChat = async (query: string) => {
+    const prompt = safeText(query, '');
     if (!prompt || !caseData?.case_id || isAiTyping) {
       return;
     }
     setIsAiTyping(true);
     setRuntimeStatus('WAITING_FOR_AGENT');
     setOrbState('investigating');
-    setAiResponse('');
     try {
-      const response = await chat({ caseId: caseData.case_id, query: prompt });
-      setAiResponse(safeText(response, 'No additional evidence available for this transaction.'));
+      await chat({ caseId: caseData.case_id, query: prompt });
       setOrbState('complete');
       setRuntimeStatus('COMPLETED');
     } catch (error) {
       console.error('AI chat failed', error);
-      setAiResponse('No additional evidence available for this transaction.');
       setOrbState('failed');
       setRuntimeStatus('FAILED');
     } finally {
@@ -897,14 +978,33 @@ const InvestigationPage: React.FC = () => {
     if (!caseData || reportState.running) {
       return;
     }
-    setReportState({ running: true, completed: false, stageIndex: 0, report: '' });
+    reportTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+    reportTimersRef.current = [];
+    reportStartRef.current = performance.now();
+    reportPreviousTimeRef.current = reportStartRef.current;
+    setReportState({ running: true, completed: false, stageIndex: 0, report: '', durations: {} });
+
     REPORT_STEPS.forEach((_, index) => {
-      window.setTimeout(() => {
-        setReportState((prev) => ({ ...prev, stageIndex: index }));
-      }, index * 550);
+      const timerId = window.setTimeout(() => {
+        const now = performance.now();
+        const previous = reportPreviousTimeRef.current ?? now;
+        const delta = Math.max(0, Math.round(now - previous));
+        reportPreviousTimeRef.current = now;
+        setReportState((prev) => ({
+          ...prev,
+          stageIndex: index,
+          durations: {
+            ...prev.durations,
+            [index]: delta,
+          },
+        }));
+      }, index * 650);
+      reportTimersRef.current.push(timerId);
     });
 
-    window.setTimeout(() => {
+    const finalTimerId = window.setTimeout(() => {
+      const now = performance.now();
+      const totalMs = Math.max(0, Math.round(now - (reportStartRef.current ?? now)));
       const reportText = [
         `Investigation Report: ${safeText(caseData.case_id)}`,
         `Generated At: ${new Date().toLocaleString()}`,
@@ -914,6 +1014,7 @@ const InvestigationPage: React.FC = () => {
         `- Customer: ${safeText(caseData.customer_id)}`,
         `- Risk Score: ${safeNumber(caseData.risk_score, 0)}/100`,
         `- Recommendation: ${safeText(caseData.recommendation)}`,
+        `- Analyst disposition: ${decision ? `${decision.charAt(0).toUpperCase() + decision.slice(1)}${decisionReason ? ` (reason: ${decisionReason})` : ''}` : 'Pending'}`,
         '',
         'Transaction Story',
         ...transactionStory.map((line) => `- ${line}`),
@@ -922,9 +1023,12 @@ const InvestigationPage: React.FC = () => {
         ...(suspiciousReasons.length > 0
           ? suspiciousReasons.map((reason) => `- ${reason.rule}: ${reason.evidence}`)
           : ['- No supporting evidence available.']),
+        '',
+        `Total generation time: ${totalMs} ms`,
       ].join('\n');
-      setReportState({ running: false, completed: true, stageIndex: REPORT_STEPS.length - 1, report: reportText });
-    }, REPORT_STEPS.length * 600);
+      setReportState({ running: false, completed: true, stageIndex: REPORT_STEPS.length - 1, report: reportText, durations: { ...reportStartRef.current ? reportState.durations : {}, total: totalMs } });
+    }, REPORT_STEPS.length * 650 + 150);
+    reportTimersRef.current.push(finalTimerId);
   };
 
   const copyReport = async () => {
@@ -955,11 +1059,11 @@ const InvestigationPage: React.FC = () => {
 
   if (isStreaming && !caseData && !investigationError) {
     return (
-      <div className="min-h-screen bg-[#F8F8F6] px-4 py-6 sm:px-6 lg:px-8 flex items-center justify-center">
+      <div className="min-h-screen bg-[#0f1114] px-4 py-6 sm:px-6 lg:px-8 flex items-center justify-center">
         <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-[#E94532] border-t-transparent" />
-          <p className="mt-4 text-gray-700 font-medium">{activeStageLabel}</p>
-          <p className="text-sm text-gray-500 mt-1">Loading transaction, network, and historical evidence...</p>
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-[#8ab4f8] border-t-transparent" />
+          <p className="mt-4 text-sm font-semibold text-[#e3e3e3]">{activeStageLabel}</p>
+          <p className="text-xs text-[#94a3b8] mt-1">Loading investigation evidence and network context...</p>
         </div>
       </div>
     );
@@ -967,12 +1071,15 @@ const InvestigationPage: React.FC = () => {
 
   if (investigationError) {
     return (
-      <div className="min-h-screen bg-[#F8F8F6] px-4 py-6 sm:px-6 lg:px-8 flex items-center justify-center">
-        <div className="bg-white border border-[#4A4A4A] rounded-md p-6 max-w-lg text-center shadow-sm">
-          <h2 className="text-xl font-serif font-bold text-[#242424] mb-2">Investigation failed</h2>
-          <p className="text-sm text-gray-600 mb-4">{safeText(investigationError, 'No supporting evidence available.')}</p>
-          <button onClick={handleBack} className="bg-[#E94532] text-white px-4 py-2 rounded-md hover:bg-red-700 transition-colors">
-            Back to Dashboard
+      <div className="min-h-screen bg-[#0f1114] px-4 py-6 sm:px-6 lg:px-8 flex items-center justify-center">
+        <div className="max-w-lg rounded-3xl border border-[#242629] bg-[#141517] p-6 shadow-lg">
+          <div className="text-xs uppercase tracking-[0.24em] text-[#8ab4f8] font-semibold">Investigation failed</div>
+          <p className="mt-3 text-base font-semibold text-[#e3e3e3]">{safeText(investigationError, 'No supporting evidence available.')}</p>
+          <button
+            onClick={handleBack}
+            className="mt-6 inline-flex items-center justify-center rounded-2xl bg-[#8ab4f8] px-4 py-2 text-sm font-semibold text-[#0f1114] hover:bg-[#6b98f0] transition-colors"
+          >
+            Back to dashboard
           </button>
         </div>
       </div>
@@ -981,102 +1088,93 @@ const InvestigationPage: React.FC = () => {
 
   if (!caseData) {
     return (
-      <div className="min-h-screen bg-[#F8F8F6] px-4 py-6 sm:px-6 lg:px-8 flex items-center justify-center">
-        <p className="text-sm text-gray-500">No investigation data available for this transaction.</p>
+      <div className="min-h-screen bg-[#0f1114] px-4 py-6 sm:px-6 lg:px-8 flex items-center justify-center">
+        <p className="text-sm text-[#94a3b8]">No investigation data available for this transaction.</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#F8F8F6] px-3 py-4 sm:px-6 sm:py-6 lg:px-8 font-sans overflow-x-hidden">
+    <div className="min-h-screen bg-[#0f1114] px-3 py-4 sm:px-6 sm:py-6 lg:px-8 font-sans overflow-x-hidden">
       <div className="max-w-7xl mx-auto">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-6">
-          <button onClick={handleBack} className="flex items-center space-x-2 text-[#242424] hover:text-[#E94532] transition-colors self-start">
+          <button onClick={handleBack} className="flex items-center space-x-2 text-[#8ab4f8] hover:text-[#a4c8ff] transition-colors self-start">
             <ArrowLeft size={18} />
-            <span>Back to Dashboard</span>
+            <span>Back to dashboard</span>
           </button>
-          <div className="text-sm text-gray-600">
-            Transaction ID: <span className="font-mono font-semibold text-[#242424]">{safeText(caseData.transaction_id, 'Information unavailable')}</span>
+          <div className="text-sm text-[#94a3b8]">
+            Transaction ID: <span className="font-mono font-semibold text-[#e3e3e3]">{safeText(caseData.transaction_id, 'Information unavailable')}</span>
           </div>
         </div>
 
-        <div className="bg-white border border-[#4A4A4A] rounded-md p-4 sm:p-6 shadow-sm mb-6">
+        <div className="rounded-3xl border border-[#242629] bg-[#16171a] p-4 sm:p-6 shadow-sm mb-6">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
             <div className="min-w-0">
-              <div className="inline-flex items-center rounded-full bg-[#FFF2EE] px-3 py-1 text-xs font-semibold tracking-wide text-[#B3301F]">
+              <div className="inline-flex items-center rounded-full bg-[#1f2b40] px-3 py-1 text-xs font-semibold tracking-wide text-[#8ab4f8]">
                 {visualSummary.headline}
               </div>
-              <h1 className="font-serif text-2xl sm:text-3xl font-bold text-[#242424] mt-3">
+              <h1 className="text-2xl sm:text-3xl font-semibold text-[#e3e3e3] mt-3">
                 {visualSummary.conclusion}
               </h1>
-              <p className="text-sm text-gray-600 mt-2 max-w-3xl">
-                Recommendation: <span className="font-semibold text-[#242424]">{visualSummary.recommendation}</span>
+              <p className="text-sm text-[#94a3b8] mt-2 max-w-3xl">
+                Recommendation: <span className="font-semibold text-[#e3e3e3]">{visualSummary.recommendation}</span>
               </p>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <span className="rounded-full bg-[#FFF7F5] px-3 py-1 text-xs font-semibold text-[#B3301F]">
-                  {formatCurrencyINR(caseData.amount)}
-                </span>
-                {amountMultiplier >= 1 && (
-                  <span className="rounded-full bg-[#FFF7F5] px-3 py-1 text-xs font-semibold text-[#B3301F]">
-                    {amountMultiplier.toFixed(1)}x normal amount
-                  </span>
-                )}
-                {newBeneficiary && (
-                  <span className="rounded-full bg-[#FFF7F5] px-3 py-1 text-xs font-semibold text-[#B3301F]">
-                    New beneficiary
-                  </span>
-                )}
-                {velocityInsight.count >= 4 && (
-                  <span className="rounded-full bg-[#FFF7F5] px-3 py-1 text-xs font-semibold text-[#B3301F]">
-                    {velocityInsight.count} transactions / {velocityInsight.minutes || 12} min
-                  </span>
-                )}
-                {suspiciousPathExplanation.map((item) => (
-                  <span key={item} className="rounded-full bg-[#F4F5F7] px-3 py-1 text-xs font-medium text-gray-700">
-                    {item}
-                  </span>
-                ))}
+              <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                <div className="rounded-2xl border border-[#242629] bg-[#141517] p-3">
+                  <div className="text-[11px] uppercase tracking-[0.24em] text-[#8ab4f8]">Customer</div>
+                  <div className="font-semibold text-[#e3e3e3] mt-1">{safeText(caseData.customer_id, 'Unknown')}</div>
+                </div>
+                <div className="rounded-2xl border border-[#242629] bg-[#141517] p-3">
+                  <div className="text-[11px] uppercase tracking-[0.24em] text-[#8ab4f8]">Account</div>
+                  <div className="font-semibold text-[#e3e3e3] mt-1">{maskAccount(safeText(caseData.source_account, 'Unknown'))}</div>
+                </div>
+                <div className="rounded-2xl border border-[#242629] bg-[#141517] p-3">
+                  <div className="text-[11px] uppercase tracking-[0.24em] text-[#8ab4f8]">Status</div>
+                  <div className="font-semibold text-[#e3e3e3] mt-1">{safeText(caseData.status, 'Completed')}</div>
+                </div>
+                <div className="rounded-2xl border border-[#242629] bg-[#141517] p-3">
+                  <div className="text-[11px] uppercase tracking-[0.24em] text-[#8ab4f8]">Recommendation</div>
+                  <div className="font-semibold text-[#e3e3e3] mt-1">{safeText(caseData.recommendation, 'Review')}</div>
+                </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-2 gap-3 min-w-0 xl:w-[340px]">
-              <div className="rounded-md border border-gray-200 bg-[#FCFCFB] p-3">
-                <div className="text-xs uppercase tracking-wide text-gray-500">Amount</div>
-                <div className="font-semibold text-[#242424] mt-1">{formatCurrencyINR(caseData.amount)}</div>
+            <div className="grid grid-cols-2 gap-3 min-w-0 xl:w-[340px]">
+              <div className="rounded-2xl border border-[#242629] bg-[#141517] p-3">
+                <div className="text-[11px] uppercase tracking-[0.24em] text-[#8ab4f8]">Amount</div>
+                <div className="font-semibold text-[#e3e3e3] mt-1">{formatCurrencyINR(caseData.amount)}</div>
               </div>
-              <div className="rounded-md border border-gray-200 bg-[#FCFCFB] p-3">
-                <div className="text-xs uppercase tracking-wide text-gray-500">Risk</div>
-                <div className="font-semibold text-[#242424] mt-1">{safeText(caseData.risk_level)} · {safeNumber(caseData.risk_score, 0)}/100</div>
+              <div className="rounded-2xl border border-[#242629] bg-[#141517] p-3">
+                <div className="text-[11px] uppercase tracking-[0.24em] text-[#8ab4f8]">Risk</div>
+                <div className="font-semibold text-[#e3e3e3] mt-1">{safeText(caseData.risk_level)} · {safeNumber(caseData.risk_score, 0)}/100</div>
               </div>
-              <div className="rounded-md border border-gray-200 bg-[#FCFCFB] p-3">
-                <div className="text-xs uppercase tracking-wide text-gray-500">Timestamp</div>
-                <div className="font-semibold text-[#242424] mt-1">{formatShortDate(caseData.timestamp ?? caseData.created_at)}</div>
+              <div className="rounded-2xl border border-[#242629] bg-[#141517] p-3">
+                <div className="text-[11px] uppercase tracking-[0.24em] text-[#8ab4f8]">Customer avg.</div>
+                <div className="font-semibold text-[#e3e3e3] mt-1">{formatCurrencyINR(caseData.customer_avg_amount)}</div>
               </div>
-              <div className="rounded-md border border-gray-200 bg-[#FCFCFB] p-3">
-                <div className="text-xs uppercase tracking-wide text-gray-500">AI Status</div>
-                <div className="font-semibold text-[#242424] mt-1">{activeStageLabel}</div>
+              <div className="rounded-2xl border border-[#242629] bg-[#141517] p-3">
+                <div className="text-[11px] uppercase tracking-[0.24em] text-[#8ab4f8]">Velocity</div>
+                <div className="font-semibold text-[#e3e3e3] mt-1">{velocityInsight.count >= 4 ? `${velocityInsight.count} in ${velocityInsight.minutes || 12} min` : 'Normal'}</div>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="bg-white border border-[#4A4A4A] rounded-md p-4 sm:p-6 shadow-sm mb-6">
+        <div className="rounded-3xl border border-[#242629] bg-[#16171a] p-4 sm:p-6 shadow-sm mb-6">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div>
-              <h2 className="font-serif text-xl font-bold text-[#242424]">Transaction Story</h2>
-              <p className="text-sm text-gray-600 mt-1">Understand the case in seconds before reading raw agent output.</p>
-            </div>
-            <div className="rounded-full border border-[#E94532]/20 bg-[#FFF7F5] px-3 py-1 text-xs font-semibold text-[#B3301F]">
-              {safeText(caseData.risk_level).toUpperCase()} FRAUD RISK — {safeNumber(caseData.risk_score, 0)}/100
+              <div className="text-xs uppercase tracking-[0.24em] text-[#8ab4f8] font-semibold">Transaction Story</div>
+              <p className="text-sm text-[#94a3b8] mt-1">Follow the key transaction facts without reading paragraphs.</p>
             </div>
           </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {transactionStory.map((step, index) => (
-              <div key={`${step}-${index}`} className="rounded-md border border-gray-200 bg-[#FCFCFB] p-3 relative">
-                <div className="text-xs uppercase tracking-wide text-gray-500">Step {index + 1}</div>
-                <div className="font-medium text-[#242424] mt-1">{step}</div>
-                {index < transactionStory.length - 1 && (
-                  <div className="hidden xl:block absolute -right-3 top-1/2 -translate-y-1/2 text-[#E94532] text-lg">→</div>
+            {storyTimeline.map((step, index) => (
+              <div key={step.label} className="rounded-2xl border border-[#242629] bg-[#141517] p-4">
+                <div className="text-[10px] uppercase tracking-[0.24em] text-[#94a3b8] font-semibold">{step.label}</div>
+                <div className="font-semibold text-[#e3e3e3] mt-2">{step.headline}</div>
+                <div className="text-sm text-[#94a3b8] mt-1">{step.detail}</div>
+                {index < storyTimeline.length - 1 && (
+                  <div className="mt-3 text-[#8ab4f8] text-xs font-semibold">→ Next</div>
                 )}
               </div>
             ))}
@@ -1085,33 +1183,74 @@ const InvestigationPage: React.FC = () => {
 
         <div className="grid grid-cols-1 2xl:grid-cols-[minmax(0,1fr)_360px] gap-6">
           <div className="space-y-6 min-w-0">
-            <div className="bg-white border border-[#4A4A4A] rounded-md p-4 shadow-sm">
+            <div className="rounded-3xl border border-[#242629] bg-[#16171a] p-4 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
                 <div>
-                  <h3 className="font-serif font-bold text-[#242424] text-lg">Transaction Network</h3>
-                  <p className="text-sm text-gray-600 mt-1">The graph is laid out left-to-right so analysts can follow who initiated the transaction, which account was used, where money went, and which linked accounts are suspicious.</p>
+                  <div className="text-xs uppercase tracking-[0.24em] text-[#8ab4f8] font-semibold">Transaction Network</div>
+                  <p className="text-sm text-[#94a3b8] mt-1">The graph is laid out left-to-right so analysts can follow who initiated the transaction, which account was used, where money went, and which linked accounts are suspicious.</p>
                 </div>
                 <button
                   type="button"
                   onClick={() => setFocusSuspiciousPath((prev) => !prev)}
                   className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
-                    focusSuspiciousPath ? 'border-[#E94532]/30 bg-[#FFF7F5] text-[#B3301F]' : 'border-gray-300 bg-white text-gray-600'
+                    focusSuspiciousPath ? 'border-[#e94532]/30 bg-[#2b1114] text-[#ffb8b3]' : 'border-[#2f3032] bg-[#141517] text-[#94a3b8]'
                   }`}
                 >
                   {focusSuspiciousPath ? 'Suspicious path mode on' : 'Show all paths equally'}
                 </button>
+                <button
+                  type="button"
+                  onClick={traceMode === 'walking' ? stopTraceWalk : beginTraceWalk}
+                  className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+                    traceMode === 'walking' ? 'border-[#8ab4f8] bg-[#17263d] text-[#c2d9ff]' : 'border-[#2f3032] bg-[#141517] text-[#94a3b8]'
+                  }`}
+                >
+                  {traceMode === 'walking' ? 'Stop walkthrough' : 'Start walkthrough'}
+                </button>
               </div>
 
-              <div className="rounded-md border border-[#E94532]/20 bg-[#FFF7F5] p-3 mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              {traceMode === 'walking' && activeTraceNode && (
+                <div className="rounded-2xl border border-[#242629] bg-[#141517] p-3 mb-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs uppercase tracking-[0.24em] text-[#8ab4f8] font-semibold">Guided trace</div>
+                      <div className="text-sm text-[#e3e3e3] mt-1">Follow the investigation node highlighted in blue.</div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => advanceTraceStep(-1)}
+                        disabled={traceStep <= 1}
+                        className="rounded-full border border-[#242629] bg-[#141517] px-3 py-1 text-xs font-semibold text-[#94a3b8] disabled:opacity-50"
+                      >
+                        Prev
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => advanceTraceStep(1)}
+                        disabled={traceStep >= traceNodes.length}
+                        className="rounded-full border border-[#242629] bg-[#141517] px-3 py-1 text-xs font-semibold text-[#94a3b8] disabled:opacity-50"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-3 text-sm text-[#94a3b8]">
+                    Step {traceStep} of {traceNodes.length}: {safeText(activeTraceNode.title)} — {safeText(activeTraceNode.line1)}
+                  </div>
+                </div>
+              )}
+
+              <div className="rounded-2xl border border-[#3a1f23] bg-[#18191d] p-3 mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <div className="text-xs uppercase tracking-wide text-[#B3301F] font-semibold">Suspicious path detected</div>
-                  <div className="text-sm text-[#242424] mt-1">
+                  <div className="text-xs uppercase tracking-[0.24em] text-[#e94532] font-semibold">Suspicious path detected</div>
+                  <div className="text-sm text-[#e3e3e3] mt-1">
                     {suspiciousPathExplanation.length > 0 ? suspiciousPathExplanation.join(' + ') : 'No supporting evidence available.'}
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {suspiciousPathExplanation.map((item) => (
-                    <span key={item} className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-[#B3301F] border border-[#E94532]/20">
+                    <span key={item} className="rounded-full bg-[#11161e] px-2.5 py-1 text-[11px] font-semibold text-[#ffb8b3] border border-[#5f1e23]">
                       {item}
                     </span>
                   ))}
@@ -1152,8 +1291,8 @@ const InvestigationPage: React.FC = () => {
                             width="76"
                             height="20"
                             rx="10"
-                            fill="white"
-                            stroke={deemphasized ? '#E5E7EB' : '#F0C7BE'}
+                            fill={deemphasized ? '#111827' : '#141517'}
+                            stroke={deemphasized ? '#334155' : '#F0C7BE'}
                             opacity={deemphasized ? 0.6 : 1}
                           />
                           <text
@@ -1162,7 +1301,7 @@ const InvestigationPage: React.FC = () => {
                             textAnchor="middle"
                             fontSize="11"
                             fontWeight="600"
-                            fill={deemphasized ? '#98A2B3' : '#B3301F'}
+                            fill={deemphasized ? '#94a3b8' : '#F0C7BE'}
                           >
                             {safeText(link.relation, 'linked to')}
                           </text>
@@ -1180,6 +1319,7 @@ const InvestigationPage: React.FC = () => {
                     const active = animationStep >= node.activationOrder;
                     const deemphasized = focusSuspiciousPath && !node.suspicious;
                     const hovered = hoveredNodeId === node.id;
+                    const traceHighlighted = traceMode === 'walking' && activeTraceNode?.id === node.id;
                     return (
                       <button
                         key={node.id}
@@ -1189,7 +1329,7 @@ const InvestigationPage: React.FC = () => {
                         onMouseLeave={() => setHoveredNodeId(null)}
                         className={`absolute rounded-xl border p-3 text-left shadow-sm transition-all ${kindToneClasses[node.tone]} ${
                           hovered ? 'shadow-md -translate-y-0.5' : ''
-                        } ${active ? 'ring-2 ring-[#E94532]/25' : ''}`}
+                        } ${active ? 'ring-2 ring-[#E94532]/25' : ''} ${traceHighlighted ? 'ring-2 ring-[#8ab4f8]/90 bg-[#17263d]' : ''}`}
                         style={{
                           left: node.x,
                           top: node.y,
@@ -1202,11 +1342,11 @@ const InvestigationPage: React.FC = () => {
                           <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${kindBadgeClasses[node.kind]}`}>
                             {node.kind}
                           </span>
-                          <span className="text-[10px] font-semibold text-gray-500">{safeText(node.badge, '')}</span>
+                          <span className="text-[10px] font-semibold text-[#94a3b8]">{safeText(node.badge, '')}</span>
                         </div>
-                        <div className="mt-2 text-xs uppercase tracking-wide text-gray-500">{safeText(node.title, 'Entity')}</div>
-                        <div className="font-semibold text-[#242424] mt-0.5 leading-tight">{safeText(node.line1, 'Information unavailable')}</div>
-                        <div className="text-xs text-gray-600 mt-1 leading-tight">{safeText(node.line2, 'Information unavailable')}</div>
+                        <div className="mt-2 text-xs uppercase tracking-wide text-[#94a3b8]">{safeText(node.title, 'Entity')}</div>
+                        <div className="font-semibold text-[#e3e3e3] mt-0.5 leading-tight">{safeText(node.line1, 'Information unavailable')}</div>
+                        <div className="text-xs text-[#94a3b8] mt-1 leading-tight">{safeText(node.line2, 'Information unavailable')}</div>
                       </button>
                     );
                   })}
@@ -1214,26 +1354,26 @@ const InvestigationPage: React.FC = () => {
               </div>
 
               {(graphModel.hoveredNode || graphModel.hoveredLink) && (
-                <div className="mt-4 rounded-md border border-gray-200 bg-[#FCFCFB] p-3 text-sm text-gray-700">
+                <div className="mt-4 rounded-2xl border border-[#242629] bg-[#141517] p-3 text-sm text-[#e3e3e3]">
                   {graphModel.hoveredNode && (
                     <div>
-                      <div className="font-semibold text-[#242424]">{graphModel.hoveredNode.title}</div>
-                      <div className="grid sm:grid-cols-2 gap-2 mt-2 text-xs">
+                      <div className="font-semibold text-[#e3e3e3]">{graphModel.hoveredNode.title}</div>
+                      <div className="grid sm:grid-cols-2 gap-2 mt-2 text-xs text-[#94a3b8]">
                         {graphModel.hoveredNode.metadata.map((item) => (
                           <div key={`${graphModel.hoveredNode?.id}-${item.label}`}>
-                            <span className="font-semibold">{item.label}:</span> {safeText(item.value, 'Information unavailable')}
+                            <span className="font-semibold text-[#e3e3e3]">{item.label}:</span> {safeText(item.value, 'Information unavailable')}
                           </div>
                         ))}
                       </div>
                     </div>
                   )}
                   {graphModel.hoveredLink && (
-                    <div className={graphModel.hoveredNode ? 'mt-4 pt-4 border-t border-gray-200' : ''}>
-                      <div className="font-semibold text-[#242424]">Relationship: {safeText(graphModel.hoveredLink.relation, 'linked to')}</div>
-                      <div className="grid sm:grid-cols-2 gap-2 mt-2 text-xs">
+                    <div className={graphModel.hoveredNode ? 'mt-4 pt-4 border-t border-[#242629]' : ''}>
+                      <div className="font-semibold text-[#e3e3e3]">Relationship: {safeText(graphModel.hoveredLink.relation, 'linked to')}</div>
+                      <div className="grid sm:grid-cols-2 gap-2 mt-2 text-xs text-[#94a3b8]">
                         {graphModel.hoveredLink.metadata.map((item) => (
                           <div key={`${graphModel.hoveredLink?.id}-${item.label}`}>
-                            <span className="font-semibold">{item.label}:</span> {safeText(item.value, 'Information unavailable')}
+                            <span className="font-semibold text-[#e3e3e3]">{item.label}:</span> {safeText(item.value, 'Information unavailable')}
                           </div>
                         ))}
                       </div>
@@ -1245,18 +1385,17 @@ const InvestigationPage: React.FC = () => {
           </div>
 
           <div className="space-y-6 min-w-0">
-            <div className="bg-white border border-[#4A4A4A] rounded-md p-4 shadow-sm">
+            <div className="rounded-3xl border border-[#242629] bg-[#16171a] p-4 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <h3 className="font-serif font-bold text-[#242424] text-lg">AI Investigator</h3>
-                  <p className="text-sm text-gray-600 mt-1">Transparent multi-agent progress with evidence-backed stages.</p>
+                  <div className="text-xs uppercase tracking-[0.24em] text-[#8ab4f8] font-semibold">AI Investigator</div>
+                  <p className="text-sm text-[#94a3b8] mt-1">Transparent multi-agent progress with evidence-backed stages.</p>
                 </div>
                 <animated.div style={orbAnimation} className="relative h-16 w-16 flex-shrink-0">
                   <button
                     type="button"
-                    onClick={() => setAiOrbExpanded((prev) => !prev)}
                     className="relative h-16 w-16 rounded-full bg-[#E94532] text-white shadow-lg overflow-hidden"
-                    aria-label="Toggle AI investigator"
+                    aria-label="AI investigator status"
                   >
                     <span className="absolute inset-[7px] rounded-full border border-white/25" />
                     {(orbState === 'investigating' || orbState === 'network' || orbState === 'retrieving' || orbState === 'analyzing') && (
@@ -1269,14 +1408,14 @@ const InvestigationPage: React.FC = () => {
                       </>
                     )}
                     {orbState === 'retrieving' && (
-                      <span className="absolute inset-x-3 bottom-3 h-1 rounded-full bg-white/35 overflow-hidden">
-                        <span className="block h-full w-1/2 bg-white ai-orb-stream" />
+                      <span className="absolute inset-x-3 bottom-3 h-1 rounded-full bg-white/10 overflow-hidden">
+                        <span className="block h-full w-1/2 bg-white/40 ai-orb-stream" />
                       </span>
                     )}
                     {orbState === 'network' && (
                       <>
-                        <span className="absolute left-1 top-1/2 h-px w-4 bg-white/70 ai-orb-connection" />
-                        <span className="absolute right-1 top-1/2 h-px w-4 bg-white/70 ai-orb-connection ai-orb-connection-delay" />
+                        <span className="absolute left-1 top-1/2 h-px w-4 bg-white/20 ai-orb-connection" />
+                        <span className="absolute right-1 top-1/2 h-px w-4 bg-white/20 ai-orb-connection ai-orb-connection-delay" />
                       </>
                     )}
                     <span className="relative z-10 flex h-full w-full items-center justify-center ai-orb-float">
@@ -1286,10 +1425,10 @@ const InvestigationPage: React.FC = () => {
                 </animated.div>
               </div>
 
-              <div className="mt-4 rounded-md border border-[#E94532]/20 bg-[#FFF7F5] p-3">
-                <div className="text-xs uppercase tracking-wide text-[#B3301F] font-semibold">Current activity</div>
-                <div className="font-medium text-[#242424] mt-1">{activeStageLabel}</div>
-                <div className="text-xs text-gray-600 mt-1">Runtime status: {runtimeStatus.replaceAll('_', ' ')}</div>
+              <div className="mt-4 rounded-2xl border border-[#3a1f23] bg-[#18191d] p-3">
+                <div className="text-xs uppercase tracking-[0.24em] text-[#e94532] font-semibold">Current activity</div>
+                <div className="font-medium text-[#e3e3e3] mt-1">{activeStageLabel}</div>
+                <div className="text-xs text-[#94a3b8] mt-1">Runtime status: {runtimeStatus.replaceAll('_', ' ')}</div>
               </div>
 
               <div className="mt-4 space-y-2">
@@ -1298,25 +1437,25 @@ const InvestigationPage: React.FC = () => {
                   const isRunning = status === 'started';
                   const isCompleted = status === 'completed';
                   return (
-                    <div key={stage.id} className="rounded-md border border-gray-200 bg-[#FCFCFB] p-3">
+                    <div key={stage.id} className="rounded-2xl border border-[#242629] bg-[#141517] p-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex items-start gap-2">
                           {isCompleted ? (
-                            <CheckCircle2 size={16} className="text-green-600 mt-0.5" />
+                            <CheckCircle2 size={16} className="text-green-500 mt-0.5" />
                           ) : isRunning ? (
-                            <Loader2 size={16} className="text-[#E94532] mt-0.5 animate-spin" />
+                            <Loader2 size={16} className="text-[#e94532] mt-0.5 animate-spin" />
                           ) : (
-                            <Circle size={16} className="text-gray-300 mt-0.5" />
+                            <Circle size={16} className="text-[#94a3b8] mt-0.5" />
                           )}
                           <div>
-                            <div className="font-medium text-sm text-[#242424]">{stage.agent}</div>
-                            <div className="text-xs text-gray-700 mt-0.5">
+                            <div className="font-medium text-sm text-[#e3e3e3]">{stage.agent}</div>
+                            <div className="text-xs text-[#94a3b8] mt-0.5">
                               {isCompleted ? stage.completeLabel : isRunning ? stage.activeLabel : stage.description}
                             </div>
                           </div>
                         </div>
                         {typeof stageDurations[stage.id] === 'number' && (
-                          <span className="text-[10px] uppercase tracking-wide text-gray-500">{stageDurations[stage.id]}ms</span>
+                          <span className="text-[10px] uppercase tracking-[0.24em] text-[#94a3b8]">{stageDurations[stage.id]}ms</span>
                         )}
                       </div>
                     </div>
@@ -1325,38 +1464,94 @@ const InvestigationPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="bg-white border border-[#4A4A4A] rounded-md p-4 shadow-sm">
-              <h3 className="font-serif font-bold text-[#242424] text-lg">Key Signals</h3>
+            <div className="rounded-3xl border border-[#242629] bg-[#16171a] p-4 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs uppercase tracking-[0.24em] text-[#8ab4f8] font-semibold">Analyst decision</div>
+                  <p className="text-sm text-[#94a3b8] mt-1">Capture your recommended disposition and rationale.</p>
+                </div>
+              </div>
+              <div className="mt-4 space-y-3">
+                <div className="grid grid-cols-3 gap-2">
+                  {(['approve', 'reject', 'escalate'] as AnalystDecision[]).map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => setDecision(option)}
+                      className={`rounded-2xl px-3 py-2 text-sm font-semibold transition-colors ${
+                        decision === option
+                          ? option === 'approve'
+                            ? 'bg-[#1f3a21] text-[#88d28b] border border-[#3f6d46]'
+                            : option === 'reject'
+                              ? 'bg-[#3f1f23] text-[#f8a8a8] border border-[#7b3f45]'
+                              : 'bg-[#3f2936] text-[#f0b56b] border border-[#8d6a4d]'
+                          : 'bg-[#141517] text-[#94a3b8] border border-[#242629] hover:border-[#8ab4f8]'
+                      }`}
+                    >
+                      {option === 'approve' ? 'Approve' : option === 'reject' ? 'Reject' : 'Escalate'}
+                    </button>
+                  ))}
+                </div>
+                <label className="block text-xs uppercase tracking-[0.24em] text-[#8ab4f8]">Reason</label>
+                <textarea
+                  value={decisionReason}
+                  onChange={(event) => setDecisionReason(event.target.value)}
+                  rows={4}
+                  placeholder="Summarize your rationale for this disposition."
+                  className="w-full rounded-2xl border border-[#242629] bg-[#141517] px-3 py-2 text-sm text-[#e3e3e3] placeholder:text-[#5f6d7f] focus:border-[#8ab4f8] focus:outline-none"
+                />
+                <div className="rounded-2xl border border-[#242629] bg-[#141517] p-3 text-sm text-[#94a3b8]">
+                  <div className="font-semibold text-[#e3e3e3]">Current decision</div>
+                  <div className="mt-1">{decision ? `${decision.charAt(0).toUpperCase() + decision.slice(1)} selected` : 'No action selected'}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-3xl border border-[#242629] bg-[#16171a] p-4 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs uppercase tracking-[0.24em] text-[#8ab4f8] font-semibold">Key Signals</div>
+                </div>
+              </div>
               <div className="mt-3 space-y-2">
                 {suspiciousReasons.length > 0 ? suspiciousReasons.map((reason) => (
-                  <div key={reason.rule} className="rounded-md border border-gray-200 bg-[#FCFCFB] p-3">
+                  <div key={reason.rule} className="rounded-2xl border border-[#242629] bg-[#141517] p-3">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-medium text-sm text-[#242424]">{reason.rule}</span>
-                      <span className="text-xs font-semibold text-[#B3301F]">+{reason.points}</span>
+                      <span className="font-medium text-sm text-[#e3e3e3]">{reason.rule}</span>
+                      <span className="text-xs font-semibold text-[#eab8b7]">+{reason.points}</span>
                     </div>
-                    <div className="text-xs text-gray-600 mt-1">{reason.evidence}</div>
+                    <div className="text-xs text-[#94a3b8] mt-1">{reason.evidence}</div>
                   </div>
                 )) : (
-                  <div className="rounded-md border border-gray-200 bg-[#FCFCFB] p-3 text-sm text-gray-600">
+                  <div className="rounded-2xl border border-[#242629] bg-[#141517] p-3 text-sm text-[#94a3b8]">
                     No supporting evidence available.
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="bg-white border border-[#4A4A4A] rounded-md p-4 shadow-sm">
-              <h3 className="font-serif font-bold text-[#242424] text-lg">Report Generator Agent</h3>
-              <div className="mt-3 space-y-2 text-xs text-gray-600">
+            <div className="rounded-3xl border border-[#242629] bg-[#16171a] p-4 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs uppercase tracking-[0.24em] text-[#8ab4f8] font-semibold">Report Generator Agent</div>
+                </div>
+              </div>
+              <div className="mt-3 space-y-2 text-xs text-[#94a3b8]">
                 {REPORT_STEPS.map((step, index) => (
-                  <div key={step} className="flex items-center gap-2">
-                    {reportState.running && reportState.stageIndex >= index ? (
-                      <Loader2 size={12} className="text-[#E94532] animate-spin" />
-                    ) : reportState.completed && reportState.stageIndex >= index ? (
-                      <CheckCircle2 size={12} className="text-green-600" />
-                    ) : (
-                      <Circle size={12} className="text-gray-300" />
+                  <div key={step} className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      {reportState.running && reportState.stageIndex >= index ? (
+                        <Loader2 size={12} className="text-[#e94532] animate-spin" />
+                      ) : reportState.completed && reportState.stageIndex >= index ? (
+                        <CheckCircle2 size={12} className="text-green-500" />
+                      ) : (
+                        <Circle size={12} className="text-[#94a3b8]" />
+                      )}
+                      <span>{step}</span>
+                    </div>
+                    {typeof reportState.durations[index] === 'number' && (
+                      <span className="text-[10px] uppercase tracking-[0.24em] text-[#94a3b8]">{reportState.durations[index]}ms</span>
                     )}
-                    <span>{step}</span>
                   </div>
                 ))}
               </div>
@@ -1366,7 +1561,7 @@ const InvestigationPage: React.FC = () => {
                   type="button"
                   onClick={startReportGeneration}
                   disabled={reportState.running}
-                  className="bg-[#E94532] text-white px-3 py-2 rounded-md text-sm hover:bg-red-700 transition-colors disabled:opacity-60"
+                  className="bg-[#e94532] text-white px-3 py-2 rounded-md text-sm hover:bg-red-700 transition-colors disabled:opacity-60"
                 >
                   {reportState.running ? 'Generating...' : 'Generate report'}
                 </button>
@@ -1374,7 +1569,7 @@ const InvestigationPage: React.FC = () => {
                   type="button"
                   onClick={copyReport}
                   disabled={!reportState.completed}
-                  className="border border-gray-300 px-3 py-2 rounded-md text-sm text-[#242424] hover:border-[#E94532]/40 disabled:opacity-50"
+                  className="border border-[#242629] bg-[#141517] px-3 py-2 rounded-md text-sm text-[#e3e3e3] hover:border-[#e94532]/40 disabled:opacity-50"
                 >
                   <span className="inline-flex items-center gap-1">
                     <Copy size={14} /> Copy report
@@ -1384,7 +1579,7 @@ const InvestigationPage: React.FC = () => {
                   type="button"
                   onClick={downloadReport}
                   disabled={!reportState.completed}
-                  className="border border-gray-300 px-3 py-2 rounded-md text-sm text-[#242424] hover:border-[#E94532]/40 disabled:opacity-50"
+                  className="border border-[#242629] bg-[#141517] px-3 py-2 rounded-md text-sm text-[#e3e3e3] hover:border-[#e94532]/40 disabled:opacity-50"
                 >
                   <span className="inline-flex items-center gap-1">
                     <Download size={14} /> Download report
@@ -1393,24 +1588,43 @@ const InvestigationPage: React.FC = () => {
               </div>
 
               {reportState.completed && reportState.report && (
-                <pre className="mt-3 max-h-56 overflow-auto rounded-md border border-gray-200 bg-[#FCFCFB] p-2.5 text-[11px] text-gray-700 whitespace-pre-wrap">
-                  {reportState.report}
-                </pre>
+                <div>
+                  <div className="mt-3 rounded-2xl border border-[#242629] bg-[#141517] p-3 text-sm text-[#94a3b8]">
+                    <div className="font-semibold text-[#e3e3e3]">Report generation durations</div>
+                    <div className="mt-2 grid gap-2 text-xs">
+                      {REPORT_STEPS.map((step, index) => (
+                        <div key={`${step}-${index}`} className="flex items-center justify-between">
+                          <span>{step}</span>
+                          <span>{reportState.durations[index] ?? 0} ms</span>
+                        </div>
+                      ))}
+                      {typeof reportState.durations.total === 'number' && (
+                        <div className="flex items-center justify-between border-t border-[#242629] pt-2 text-[#e3e3e3]">
+                          <span className="font-semibold">Total</span>
+                          <span className="font-semibold">{reportState.durations.total} ms</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <pre className="mt-3 max-h-56 overflow-auto rounded-2xl border border-[#242629] bg-[#141517] p-2.5 text-[11px] text-[#94a3b8] whitespace-pre-wrap">
+                    {reportState.report}
+                  </pre>
+                </div>
               )}
             </div>
           </div>
         </div>
 
-        <div className="mt-6 bg-white border border-[#4A4A4A] rounded-md p-4 sm:p-6 shadow-sm">
+        <div className="mt-6 rounded-3xl border border-[#242629] bg-[#16171a] p-4 sm:p-6 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h3 className="font-serif font-bold text-[#242424] text-lg">AI Investigation Summary</h3>
-              <p className="text-sm text-gray-600 mt-1">Visual summary first, detailed reasoning only when you need it.</p>
+              <div className="text-xs uppercase tracking-[0.24em] text-[#8ab4f8] font-semibold">AI Investigation Summary</div>
+              <p className="text-sm text-[#94a3b8] mt-1">Visual summary first, detailed reasoning only when you need it.</p>
             </div>
             <button
               type="button"
               onClick={() => setShowDetailedReasoning((prev) => !prev)}
-              className="inline-flex items-center gap-1 text-sm text-[#B3301F] font-medium"
+              className="inline-flex items-center gap-1 text-sm text-[#e94532] font-medium"
             >
               {showDetailedReasoning ? 'Hide AI reasoning' : 'Show AI reasoning'}
               <ChevronDown size={16} className={`transition-transform ${showDetailedReasoning ? 'rotate-180' : ''}`} />
@@ -1418,26 +1632,26 @@ const InvestigationPage: React.FC = () => {
           </div>
 
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-md border border-[#E94532]/20 bg-[#FFF7F5] p-3 xl:col-span-2">
-              <div className="text-xs uppercase tracking-wide text-[#B3301F] font-semibold">Headline</div>
-              <div className="font-semibold text-[#242424] mt-1">{visualSummary.headline}</div>
-              <div className="text-sm text-gray-700 mt-2">{visualSummary.conclusion}</div>
+            <div className="rounded-2xl border border-[#3a1f23] bg-[#141517] p-3 xl:col-span-2">
+              <div className="text-xs uppercase tracking-[0.24em] text-[#e94532] font-semibold">Headline</div>
+              <div className="font-semibold text-[#e3e3e3] mt-1">{visualSummary.headline}</div>
+              <div className="text-sm text-[#94a3b8] mt-2">{visualSummary.conclusion}</div>
             </div>
-            <div className="rounded-md border border-gray-200 bg-[#FCFCFB] p-3">
-              <div className="text-xs uppercase tracking-wide text-gray-500">Recommendation</div>
-              <div className="font-semibold text-[#242424] mt-1">{visualSummary.recommendation}</div>
+            <div className="rounded-2xl border border-[#242629] bg-[#141517] p-3">
+              <div className="text-xs uppercase tracking-[0.24em] text-[#8ab4f8]">Recommendation</div>
+              <div className="font-semibold text-[#e3e3e3] mt-1">{visualSummary.recommendation}</div>
             </div>
-            <div className="rounded-md border border-gray-200 bg-[#FCFCFB] p-3">
-              <div className="text-xs uppercase tracking-wide text-gray-500">Supporting metrics</div>
-              <div className="text-sm text-[#242424] mt-1">{customerHistory.length} historical transactions reviewed</div>
-              <div className="text-sm text-[#242424] mt-1">Updated {formatRelativeTime(caseData.timestamp ?? caseData.created_at)}</div>
+            <div className="rounded-2xl border border-[#242629] bg-[#141517] p-3">
+              <div className="text-xs uppercase tracking-[0.24em] text-[#8ab4f8]">Supporting metrics</div>
+              <div className="text-sm text-[#e3e3e3] mt-1">{customerHistory.length} historical transactions reviewed</div>
+              <div className="text-sm text-[#94a3b8] mt-1">Updated {formatRelativeTime(caseData.timestamp ?? caseData.created_at)}</div>
             </div>
           </div>
 
           {showDetailedReasoning && (
-            <div className="mt-4 rounded-md border border-gray-200 bg-[#FCFCFB] p-4">
-              <div className="text-sm font-semibold text-[#242424] mb-2">Detailed AI reasoning</div>
-              <div className="space-y-2 text-sm text-gray-700">
+            <div className="mt-4 rounded-2xl border border-[#242629] bg-[#141517] p-4">
+              <div className="text-sm font-semibold text-[#e3e3e3] mb-2">Detailed AI reasoning</div>
+              <div className="space-y-2 text-sm text-[#94a3b8]">
                 {detailedReasoning.length > 0 ? detailedReasoning.map((line) => (
                   <div key={line}>{line}</div>
                 )) : (
@@ -1447,102 +1661,6 @@ const InvestigationPage: React.FC = () => {
             </div>
           )}
         </div>
-
-        <animated.div style={orbAnimation} className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50">
-          <button
-            type="button"
-            onClick={() => setAiOrbExpanded((prev) => !prev)}
-            className="relative h-16 w-16 rounded-full bg-[#E94532] text-white shadow-lg overflow-hidden"
-            aria-label="Toggle AI investigator"
-          >
-            <span className="absolute inset-[8px] rounded-full border border-white/30" />
-            {(orbState === 'investigating' || orbState === 'network' || orbState === 'retrieving' || orbState === 'analyzing') && (
-              <span className="absolute inset-0 ai-orb-ring" />
-            )}
-            {(orbState === 'investigating' || orbState === 'network') && (
-              <>
-                <span className="absolute top-2 left-3 h-1.5 w-1.5 rounded-full bg-white/80 ai-orb-orbit" />
-                <span className="absolute bottom-3 right-3 h-1.5 w-1.5 rounded-full bg-white/60 ai-orb-orbit ai-orb-orbit-delay" />
-              </>
-            )}
-            {orbState === 'retrieving' && (
-              <span className="absolute inset-x-3 bottom-3 h-1 rounded-full bg-white/35 overflow-hidden">
-                <span className="block h-full w-1/2 bg-white ai-orb-stream" />
-              </span>
-            )}
-            {orbState === 'network' && (
-              <>
-                <span className="absolute left-1 top-1/2 h-px w-4 bg-white/70 ai-orb-connection" />
-                <span className="absolute right-1 top-1/2 h-px w-4 bg-white/70 ai-orb-connection ai-orb-connection-delay" />
-              </>
-            )}
-            <span className="relative z-10 flex h-full w-full items-center justify-center ai-orb-float">
-              <Sparkles size={24} />
-            </span>
-          </button>
-        </animated.div>
-
-        {aiOrbExpanded && (
-          <div className="fixed left-3 right-3 sm:left-auto sm:right-6 bottom-24 sm:w-[420px] bg-white border border-[#4A4A4A] rounded-lg shadow-xl z-50 flex flex-col max-h-[72vh]">
-            <div className="flex justify-between items-center p-3 border-b border-[#4A4A4A]">
-              <div>
-                <h4 className="font-serif font-bold text-[#242424]">AI Investigator</h4>
-                <div className="text-xs text-gray-600 mt-0.5">{activeStageLabel}</div>
-              </div>
-              <button onClick={() => setAiOrbExpanded(false)} className="text-gray-400 hover:text-gray-600" aria-label="Close AI panel">
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="p-3 border-b border-gray-100 space-y-2">
-              {STAGE_DEFINITIONS.map((stage) => {
-                const status = stageState[stage.id] || 'pending';
-                return (
-                  <div key={stage.id} className="flex items-start gap-2 text-xs text-gray-700">
-                    {status === 'completed' ? (
-                      <CheckCircle2 size={14} className="text-green-600 mt-0.5" />
-                    ) : status === 'started' ? (
-                      <Loader2 size={14} className="text-[#E94532] mt-0.5 animate-spin" />
-                    ) : (
-                      <Circle size={14} className="text-gray-300 mt-0.5" />
-                    )}
-                    <span>{status === 'completed' ? stage.completeLabel : status === 'started' ? stage.activeLabel : stage.agent}</span>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-3 space-y-2">
-              {aiResponse ? (
-                <div className="bg-gray-50 p-3 rounded-md text-sm text-gray-700 whitespace-pre-wrap">{aiResponse}</div>
-              ) : (
-                <div className="text-sm text-gray-500">Ask about the suspicious path, a relationship, or why the risk score is elevated.</div>
-              )}
-            </div>
-
-            <div className="p-3 border-t border-[#4A4A4A] flex gap-2">
-              <input
-                type="text"
-                value={aiChatInput}
-                onChange={(event) => setAiChatInput(event.target.value)}
-                placeholder="Ask about this investigation..."
-                className="flex-1 px-3 py-2 border border-[#4A4A4A] rounded-md focus:ring-1 focus:ring-[#E94532] text-sm"
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    runAiChat();
-                  }
-                }}
-              />
-              <button
-                onClick={() => runAiChat()}
-                disabled={isAiTyping || !safeText(aiChatInput, '').trim()}
-                className="bg-[#E94532] text-white px-4 py-2 rounded-md hover:bg-red-700 transition-colors disabled:opacity-50"
-              >
-                {isAiTyping ? <Loader2 className="animate-spin h-4 w-4" /> : <Send size={16} />}
-              </button>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

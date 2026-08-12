@@ -1,25 +1,14 @@
 import { useMemo, useState } from 'react';
 import { useDashboardStats } from '../hooks/useDashboardStats';
-import { useChat } from '../hooks/useChat';
-import TransactionActivityChart from '../components/TransactionActivityChart';
-import VerificationPanel from '../components/VerificationPanel';
-import UnusualTransactionAlerts from '../components/UnusualTransactionAlerts';
-import OngoingInvestigation from '../components/OngoingInvestigation';
-import RecentTransactions from '../components/RecentTransactions';
+import { useBusinessMetrics } from '../hooks/useBusinessMetrics';
+import { formatCurrencyINR, formatRelativeTime } from '../utils/format';
+import { useLiveTransactions } from '../hooks/useLiveTransactions';
+import MetricCard from '../components/MetricCard';
+import LiveTransactionTable from '../components/LiveTransactionTable';
+import AlertQueue from '../components/AlertQueue';
+import InvestigationTable from '../components/InvestigationTable';
 import InvestigationModal from '../components/InvestigationModal';
-import {
-  Settings,
-  Key,
-  Library,
-  Compass,
-  MessageSquare,
-  Activity,
-  FileText,
-  Terminal,
-  ShieldAlert as ShieldIcon,
-  Bell,
-  User,
-} from 'lucide-react';
+import { Settings, Compass, Bell, User } from 'lucide-react';
 
 const ProductLogoIcon = () => (
   <svg viewBox="0 0 48 48" className="h-11 w-11" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -37,15 +26,14 @@ const ProductLogoIcon = () => (
 );
 
 const Dashboard = () => {
-  const [selectedSection, setSelectedSection] = useState<'overview' | 'investigations' | 'transactions' | 'network' | 'patterns' | 'ai' | 'verification' | 'alerts' | 'settings'>('overview');
+  const [selectedSection, setSelectedSection] = useState<'overview'>('overview');
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [chatInput, setChatInput] = useState('');
-  const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'model'; content: string }[]>([
-    { role: 'model', content: 'Welcome to FraudShield.' },
-  ]);
 
-  const { mutateAsync: sendMessage, isPending: isAiTyping } = useChat();
   const { data: stats, dataUpdatedAt } = useDashboardStats();
+  const { data: businessMetrics } = useBusinessMetrics();
+
+  const live = useLiveTransactions();
+  const [transactionFilter, setTransactionFilter] = useState<'all' | 'highRisk' | 'blocked' | 'review'>('all');
 
   const displayStats = stats || {
     totalTransactions: 0,
@@ -61,261 +49,148 @@ const Dashboard = () => {
     ],
   };
 
-  const lastUpdated = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--';
+  const lastUpdated = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--:--:--';
 
-  const sections = [
-    { id: 'overview', label: 'Overview', icon: Compass },
-    { id: 'investigations', label: 'Investigations', icon: Activity },
-    { id: 'transactions', label: 'Transactions', icon: FileText },
-    { id: 'network', label: 'Network', icon: Library },
-    { id: 'patterns', label: 'Patterns', icon: ShieldIcon },
-    { id: 'ai', label: 'AI', icon: Terminal },
-    { id: 'verification', label: 'Verification', icon: Key },
-    { id: 'alerts', label: 'Alerts', icon: MessageSquare },
-    { id: 'settings', label: 'Settings', icon: Settings },
-  ];
-
-  const patterns = useMemo(
-    () => [
-      { title: 'High-value', active: displayStats.alerts.some((alert) => alert.historical_comparison?.amount_multiplier > 3) },
-      { title: 'New beneficiary', active: displayStats.alerts.some((alert) => /new beneficiary/i.test(alert.flagged_reason)) },
-      { title: 'Velocity', active: displayStats.alerts.some((alert) => /velocity|rapid/i.test(alert.flagged_reason)) },
-    ],
-    [displayStats.alerts],
-  );
-
-  const handleSendPrompt = async () => {
-    const text = chatInput.trim();
-    if (!text) return;
-    setChatInput('');
-    setChatMessages((prev) => [...prev, { role: 'user', content: text }]);
-
-    try {
-      const match = text.match(/(?:txn|tx)[\w-]*/i);
-      const matchedCaseId = match ? match[0] : 'general_query';
-      const response = await sendMessage({ caseId: matchedCaseId, query: text });
-      setChatMessages((prev) => [...prev, { role: 'model', content: String(response ?? 'No response') }]);
-    } catch (error: unknown) {
-      const errorMessage =
-        error && typeof error === 'object' && 'response' in error && (error as any).response?.data?.detail
-          ? String((error as any).response.data.detail)
-          : 'Unable to contact the investigator.';
-      setChatMessages((prev) => [...prev, { role: 'model', content: errorMessage }]);
+  // Format Money at Risk
+  const moneyAtRiskDisplay = useMemo(() => {
+    if (!businessMetrics?.moneyAtRisk.available) {
+      return 'Unavailable';
     }
-  };
+    const value = businessMetrics.moneyAtRisk.value || 0;
+    const count = businessMetrics.moneyAtRisk.transactionCount || 0;
+    return `₹${(value / 100000).toFixed(2)}L (${count} txns)`;
+  }, [businessMetrics?.moneyAtRisk]);
+
+  // Format Fraud Prevented
+  const fraudPreventedDisplay = useMemo(() => {
+    if (!businessMetrics?.fraudPrevented.available) {
+      return 'Unavailable';
+    }
+    const value = businessMetrics.fraudPrevented.value || 0;
+    return formatCurrencyINR(value, 'Unavailable');
+  }, [businessMetrics?.fraudPrevented]);
+
+  const fraudPreventedSubtitle = useMemo(() => {
+    if (!businessMetrics?.fraudPrevented.available) {
+      return businessMetrics?.fraudPrevented.reason || 'Insufficient outcome data';
+    }
+    return `${businessMetrics.fraudPrevented.transactionCount || 0} confirmed fraud blocked`;
+  }, [businessMetrics?.fraudPrevented]);
+
+  // Format Fraud Loss
+  const fraudLossDisplay = useMemo(() => {
+    if (!businessMetrics?.fraudLoss.available) {
+      return 'Unavailable';
+    }
+    const value = businessMetrics.fraudLoss.value || 0;
+    return formatCurrencyINR(value, 'Unavailable');
+  }, [businessMetrics?.fraudLoss]);
+
+  const fraudLossSubtitle = useMemo(() => {
+    if (!businessMetrics?.fraudLoss.available) {
+      return businessMetrics?.fraudLoss.reason || 'Confirmed loss data unavailable';
+    }
+    return `Net loss on ${businessMetrics.fraudLoss.transactionCount || 0} cases`;
+  }, [businessMetrics?.fraudLoss]);
+
+  // Format Detection Rate
+  const detectionRateDisplay = useMemo(() => {
+    if (!businessMetrics?.detectionRate.available) {
+      return 'Unavailable';
+    }
+    const rate = businessMetrics.detectionRate.ratePercentage || 0;
+    return `${rate.toFixed(1)}%`;
+  }, [businessMetrics?.detectionRate]);
+
+  const detectionRateSubtitle = useMemo(() => {
+    if (!businessMetrics?.detectionRate.available) {
+      return businessMetrics?.detectionRate.reason || 'No defensible metric available';
+    }
+    return `${businessMetrics.detectionRate.detectedFraudCount}/${businessMetrics.detectionRate.confirmedFraudCount} detected`;
+  }, [businessMetrics?.detectionRate]);
+
+  // Format Review Queue
+  const reviewQueueDisplay = useMemo(() => {
+    return businessMetrics?.reviewQueue?.count ?? 0;
+  }, [businessMetrics?.reviewQueue]);
+
+  const transactionsScreened = displayStats.totalTransactions ?? 0;
+  const alertsGenerated = (displayStats.alerts || []).length;
+  const blockedCount = live.transactions.filter((tx) => tx.decision === 'BLOCK').length;
+  const challengedCount = live.transactions.filter((tx) => tx.decision === 'REVIEW').length;
+
+  const systemStatus = useMemo(() => {
+    if (!live.lastReceivedAt) return 'OFFLINE';
+    const ageMs = Date.now() - live.lastReceivedAt.getTime();
+    if (ageMs < 15000) return 'LIVE';
+    if (ageMs < 5 * 60 * 1000) return 'STALE';
+    return 'OFFLINE';
+  }, [live.lastReceivedAt]);
+
+  const sections = [{ id: 'overview', label: 'Overview', icon: Compass }];
 
   const renderSectionPanel = () => {
-    switch (selectedSection) {
-      case 'investigations':
-        return (
-          <section className="space-y-6">
-            <div className="flex items-center justify-between gap-4">
-              <h2 className="text-lg font-semibold text-[#e3e3e3]">Investigations</h2>
-              <span className="text-sm text-[#8ab4f8]">{lastUpdated}</span>
+    return (
+      <section className="space-y-6">
+        <div className="rounded-3xl border border-[#2f3032] bg-[#141517] p-5 shadow-sm ring-1 ring-white/5">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-xs uppercase tracking-[0.24em] text-[#8ca5c0]">Overview</p>
+              <h2 className="mt-2 text-2xl font-semibold text-[#e3e3e3]">Fraud Operations Dashboard</h2>
+              <p className="mt-2 text-sm text-[#9ca3af]">Live monitoring · Updated {lastUpdated}</p>
             </div>
-            <OngoingInvestigation investigations={displayStats.investigations} />
-          </section>
-        );
-      case 'transactions':
-        return (
-          <section className="space-y-6">
-            <div className="flex items-center justify-between gap-4">
-              <h2 className="text-lg font-semibold text-[#e3e3e3]">Transactions</h2>
-              <span className="text-sm text-[#8ab4f8]">Live</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold ${
+                  systemStatus === 'LIVE'
+                    ? 'border-[#2f6b3e] bg-[#0b1f12] text-[#7dd3a2]'
+                    : systemStatus === 'STALE'
+                    ? 'border-[#6b4f1a] bg-[#1a1208] text-[#f9a826]'
+                    : 'border-[#3a3d40] bg-[#0f0f10] text-[#9ca3af]'
+                }`}
+              >
+                <span className={`h-2.5 w-2.5 rounded-full ${systemStatus === 'LIVE' ? 'bg-[#7dd3a2]' : systemStatus === 'STALE' ? 'bg-[#f9a826]' : 'bg-[#6b7280]'}`} />
+                {systemStatus}
+              </span>
+              <span className="text-xs text-[#9ca3af]">{live.lastReceivedAt ? formatRelativeTime(live.lastReceivedAt) : 'No data'}</span>
+              <button type="button" className="rounded-2xl border border-[#2f3032] bg-[#131417] px-3 py-2 text-xs font-semibold text-[#8ab4f8] hover:bg-[#1f2124]">
+                Refresh
+              </button>
             </div>
-            <RecentTransactions />
-          </section>
-        );
-      case 'network':
-        return (
-          <section className="space-y-6">
-            <div className="flex items-center justify-between gap-4">
-              <h2 className="text-lg font-semibold text-[#e3e3e3]">Transaction network</h2>
-              <span className="text-sm text-[#8ab4f8]">Signals</span>
-            </div>
-            <div className="rounded-3xl bg-[#16171a] p-5">
-              <TransactionActivityChart data={displayStats.chartData} />
-            </div>
-          </section>
-        );
-      case 'patterns':
-        return (
-          <section className="space-y-6">
-            <div className="flex items-center justify-between gap-4">
-              <h2 className="text-lg font-semibold text-[#e3e3e3]">Patterns</h2>
-              <span className="text-sm text-[#8ab4f8]">Active</span>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-3">
-              {patterns.map((pattern) => (
-                <div key={pattern.title} className={`rounded-2xl border px-4 py-3 ${pattern.active ? 'border-[#8ab4f8] bg-[#161b20]' : 'border-[#242629] bg-[#141517]'}`}>
-                  <div className="text-sm font-semibold text-[#e3e3e3]">{pattern.title}</div>
-                  <div className="mt-2 text-xs text-[#9ca3af]">{pattern.active ? 'Active' : 'Idle'}</div>
-                </div>
-              ))}
-            </div>
-          </section>
-        );
-      case 'ai':
-        return (
-          <section className="space-y-6">
-            <div className="flex items-center justify-between gap-4">
-              <h2 className="text-lg font-semibold text-[#e3e3e3]">AI investigator</h2>
-              <span className="text-sm text-[#8ab4f8]">Assistant</span>
-            </div>
-            <div className="rounded-3xl bg-[#16171a] p-5">
-              <div className="space-y-3">
-                {chatMessages.map((msg, index) => (
-                  <div
-                    key={index}
-                    className={`rounded-2xl border px-4 py-3 ${msg.role === 'user' ? 'border-[#8ab4f8] bg-[#14171c]' : 'border-[#2f3032] bg-[#131417]'}`}
-                  >
-                    <p className="text-xs text-[#8ab4f8] mb-2">{msg.role === 'user' ? 'You' : 'AI'}</p>
-                    <p className="text-sm text-[#e3e3e3] whitespace-pre-wrap">{msg.content}</p>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-                <input
-                  type="text"
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  placeholder="Ask about a transaction..."
-                  className="flex-1 rounded-2xl border border-[#2f3032] bg-[#141517] px-4 py-3 text-sm text-[#e3e3e3] focus:outline-none focus:ring-1 focus:ring-[#8ab4f8]"
-                />
-                <button
-                  onClick={handleSendPrompt}
-                  disabled={!chatInput.trim() || isAiTyping}
-                  className="inline-flex h-12 items-center justify-center rounded-2xl bg-[#8ab4f8] px-5 text-sm font-semibold text-[#131313] hover:bg-[#a4c8ff] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {isAiTyping ? 'Thinking…' : 'Send'}
-                </button>
-              </div>
-            </div>
-          </section>
-        );
-      case 'verification':
-        return (
-          <section className="space-y-6">
-            <div className="flex items-center justify-between gap-4">
-              <h2 className="text-lg font-semibold text-[#e3e3e3]">Verification</h2>
-              <span className="text-sm text-[#8ab4f8]">{displayStats.verification.unassigned} review</span>
-            </div>
-            <VerificationPanel data={displayStats.verification} activity={displayStats.verificationActivity} />
-          </section>
-        );
-      case 'alerts':
-        return (
-          <section className="space-y-6">
-            <div className="flex items-center justify-between gap-4">
-              <h2 className="text-lg font-semibold text-[#e3e3e3]">Alerts</h2>
-              <span className="text-sm text-[#f28b82]">{displayStats.unusualTransactions} active</span>
-            </div>
-            <UnusualTransactionAlerts alerts={displayStats.alerts} />
-          </section>
-        );
-      case 'settings':
-        return (
-          <section className="space-y-6">
-            <h2 className="text-lg font-semibold text-[#e3e3e3]">Settings</h2>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {[
-                { label: 'Agent notifications', value: 'Enabled' },
-                { label: 'Theme', value: 'Dark' },
-                { label: 'Alert sound', value: 'Muted' },
-                { label: 'API', value: 'Connected' },
-              ].map((item) => (
-                <div key={item.label} className="rounded-2xl bg-[#141517] p-4 text-sm text-[#e3e3e3]">
-                  <div className="font-medium text-[#c4c7c5]">{item.label}</div>
-                  <div className="mt-2 text-sm text-[#e3e3e3]">{item.value}</div>
-                </div>
-              ))}
-            </div>
-          </section>
-        );
-      default:
-        return (
-          <section className="space-y-8">
-            <div className="grid gap-4 sm:grid-cols-[1.4fr_0.9fr]">
-              <div className="rounded-3xl bg-[#16171a] p-5">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm text-[#9ca3af]">Overview</p>
-                    <h2 className="mt-2 text-2xl font-semibold text-[#e3e3e3]">Workspace</h2>
-                  </div>
-                  <span className="text-sm text-[#8ab4f8]">Updated {lastUpdated}</span>
-                </div>
-                <div className="mt-6 grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-2xl bg-[#141517] p-4">
-                    <div className="text-2xl font-semibold text-[#e3e3e3]">{displayStats.totalTransactions.toLocaleString()}</div>
-                    <div className="mt-1 text-xs text-[#9ca3af]">Transactions</div>
-                  </div>
-                  <div className="rounded-2xl bg-[#141517] p-4">
-                    <div className="text-2xl font-semibold text-[#f28b82]">{displayStats.unusualTransactions.toLocaleString()}</div>
-                    <div className="mt-1 text-xs text-[#9ca3af]">Alerts</div>
-                  </div>
-                  <div className="rounded-2xl bg-[#141517] p-4">
-                    <div className="text-2xl font-semibold text-[#fdd663]">{displayStats.verification.unassigned.toLocaleString()}</div>
-                    <div className="mt-1 text-xs text-[#9ca3af]">Review</div>
-                  </div>
-                </div>
-              </div>
+          </div>
 
-              <div className="rounded-3xl bg-[#16171a] p-5 space-y-5">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm text-[#9ca3af]">Workspace</p>
-                    <h3 className="mt-2 text-lg font-semibold text-[#e3e3e3]">Agent Ready</h3>
-                  </div>
-                  <div className="rounded-2xl bg-[#8ab4f8]/10 px-3 py-1 text-sm font-semibold text-[#8ab4f8]">Live</div>
-                </div>
-                <div className="grid gap-3">
-                  {patterns.map((pattern) => (
-                    <div key={pattern.title} className="flex items-center justify-between rounded-2xl bg-[#141517] px-4 py-3 text-sm text-[#e3e3e3]">
-                      <span>{pattern.title}</span>
-                      <span className={pattern.active ? 'text-[#8ab4f8]' : 'text-[#9ca3af]'}>{pattern.active ? 'Active' : 'Idle'}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <MetricCard label="Money at risk" value={moneyAtRiskDisplay} subtitle="Current unresolved exposure" accent="red" />
+            <MetricCard label="Fraud prevented" value={fraudPreventedDisplay} subtitle={fraudPreventedSubtitle} accent="green" />
+            <MetricCard label="Fraud loss" value={fraudLossDisplay} subtitle={fraudLossSubtitle} accent="amber" />
+            <MetricCard label="Review queue" value={`${reviewQueueDisplay}`} subtitle="Awaiting human decision" accent="amber" />
+            <MetricCard label="Detection rate" value={detectionRateDisplay} subtitle={detectionRateSubtitle} accent="blue" />
+          </div>
 
-            <div className="grid gap-6 xl:grid-cols-[1.6fr_0.9fr]">
-              <div>
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <h3 className="text-lg font-semibold text-[#e3e3e3]">Recent investigations</h3>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedSection('investigations')}
-                    className="rounded-full border border-[#2f3032] bg-[#141517] px-3 py-2 text-sm text-[#8ab4f8] hover:bg-[#1f2124] transition-colors"
-                  >
-                    Investigations
-                  </button>
-                </div>
-                <div className="mt-4">
-                  <OngoingInvestigation investigations={displayStats.investigations} />
-                </div>
-              </div>
+          <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-[#9ca3af]">
+            <div className="rounded-2xl bg-[#111417] px-3 py-2">Transactions screened: <span className="font-semibold text-[#e3e3e3]">{transactionsScreened}</span></div>
+            <div className="rounded-2xl bg-[#111417] px-3 py-2">Alerts generated: <span className="font-semibold text-[#e3e3e3]">{alertsGenerated}</span></div>
+            <div className="rounded-2xl bg-[#111417] px-3 py-2">Blocked: <span className="font-semibold text-[#e3e3e3]">{blockedCount}</span></div>
+            <div className="rounded-2xl bg-[#111417] px-3 py-2">Challenged: <span className="font-semibold text-[#e3e3e3]">{challengedCount}</span></div>
+            <div className="rounded-2xl bg-[#111417] px-3 py-2">Cases awaiting review: <span className="font-semibold text-[#e3e3e3]">{reviewQueueDisplay}</span></div>
+          </div>
+        </div>
 
-              <div className="space-y-4">
-                <button
-                  onClick={() => setSelectedSection('ai')}
-                  className="w-full rounded-2xl bg-[#8ab4f8] px-4 py-3 text-sm font-semibold text-[#131313] hover:bg-[#a4c8ff] transition-colors"
-                >
-                  Open AI investigator
-                </button>
-                <button
-                  onClick={() => setSelectedSection('alerts')}
-                  className="w-full rounded-2xl border border-[#2f3032] bg-[#141517] px-4 py-3 text-sm text-[#e3e3e3] hover:bg-[#1f2124] transition-colors"
-                >
-                  Review alerts
-                </button>
-              </div>
-            </div>
-          </section>
-        );
-    }
+        <div className="grid gap-6 xl:grid-cols-[1.7fr_1fr] items-stretch min-h-0">
+          <LiveTransactionTable
+            transactions={live.transactions}
+            highlightedIds={live.highlightedIds}
+            currentFilter={transactionFilter}
+            onFilterChange={setTransactionFilter}
+          />
+          <AlertQueue alerts={displayStats.alerts} />
+        </div>
+
+        <div className="grid gap-6">
+          <InvestigationTable investigations={displayStats.investigations} />
+        </div>
+      </section>
+    );
   };
 
   return (

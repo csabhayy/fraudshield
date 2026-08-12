@@ -51,6 +51,68 @@ export interface OngoingInvestigationItem {
   agent_status: string;
 }
 
+export interface LiveTransactionItem {
+  transaction_id: string;
+  customer_id: string;
+  amount: number;
+  channel: string;
+  location: string;
+  timestamp: string;
+  source_account: string;
+  beneficiary_account: string;
+  device_id: string;
+  days_since_last_txn: number;
+  customer_avg_amount: number;
+  previous_alerts: number;
+  is_international: boolean;
+  story?: string;
+  risk_score?: number;
+  risk_level?: 'Low' | 'Medium' | 'High' | 'Critical';
+  decision?: 'ALLOW' | 'REVIEW' | 'BLOCK';
+}
+
+export interface RiskActivityPoint {
+  time: string;
+  volume: number;
+  highRisk: number;
+  alerts: number;
+  blocks: number;
+}
+
+export interface AgentActivityItem {
+  time: string;
+  agent: string;
+  message: string;
+  status: 'ACTIVE' | 'IDLE';
+  transaction_id?: string;
+}
+
+export interface FraudPattern {
+  title: string;
+  count: number;
+  subtitle: string;
+  risk_level: 'Low' | 'Medium' | 'High';
+  trend: string;
+  active?: boolean;
+}
+
+export interface NetworkSummary {
+  accounts: number;
+  devices: number;
+  beneficiaries: number;
+  merchants: number;
+  highlight: string;
+}
+
+export interface SystemHealthStatus {
+  label: string;
+  status: string;
+  detail: string;
+  healthy: boolean;
+}
+
+export type TransactionFilter = 'all' | 'highRisk' | 'blocked' | 'review';
+
 export interface VerificationActivityItem {
   case_id: string;
   transaction_id: string;

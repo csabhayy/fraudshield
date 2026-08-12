@@ -172,7 +172,23 @@ def _build_case_response(result_state: dict) -> dict:
         "reviewer_comment": "",
         "created_at": result_state["created_at"],
         "audit": [{"time": result_state["created_at"], "actor": "FraudShield AI", "event": "Analysis completed"}],
-        "similar_cases": similar
+        "similar_cases": similar,
+        # Ground-truth fraud outcome (initialized as UNKNOWN until confirmed)
+        "outcome": "UNKNOWN",
+        # Decision made by rule engine (will be updated by reviewer)
+        "decision": "BLOCK" if result_state["rule_score"] >= 70 else
+                   "REVIEW" if result_state["rule_score"] >= 40 else
+                   "CHALLENGE" if result_state["rule_score"] >= 31 else "ALLOW",
+        # Transaction completion status (true = completed, false = prevented/blocked)
+        "transactionCompleted": True if result_state["rule_score"] < 31 else False,
+        # Financial outcome fields (null until confirmed)
+        "actualLossAmount": None,
+        "recoveredAmount": None,
+        "preventedAmount": None,
+        # Detection metadata
+        "wasDetected": result_state["rule_score"] >= 31,  # Considered detected if flagged by rule engine
+        "detectionTimestamp": result_state["created_at"] if result_state["rule_score"] >= 31 else None,
+        "outcomeConfirmedTimestamp": None,
     }
     return convert_numpy(final)
 
@@ -476,6 +492,49 @@ async def get_graph(account: str):
     if neo4j is None:
         raise HTTPException(503, "Neo4j client not initialised yet.")
     return neo4j.analyze_account(account)
+
+# ------- Business Metrics Endpoints -------
+@app.get("/metrics/money-at-risk")
+async def metrics_money_at_risk():
+    """Get current Money at Risk metric with full provenance."""
+    from services.metrics_service import get_metrics_service
+    metrics = get_metrics_service()
+    return metrics.calculate_money_at_risk()
+
+@app.get("/metrics/fraud-prevented")
+async def metrics_fraud_prevented():
+    """Get Fraud Prevented metric with full provenance."""
+    from services.metrics_service import get_metrics_service
+    metrics = get_metrics_service()
+    return metrics.calculate_fraud_prevented()
+
+@app.get("/metrics/fraud-loss")
+async def metrics_fraud_loss():
+    """Get Fraud Loss metric with full provenance."""
+    from services.metrics_service import get_metrics_service
+    metrics = get_metrics_service()
+    return metrics.calculate_fraud_loss()
+
+@app.get("/metrics/detection-rate")
+async def metrics_detection_rate():
+    """Get Detection Rate metric with full provenance."""
+    from services.metrics_service import get_metrics_service
+    metrics = get_metrics_service()
+    return metrics.calculate_detection_rate()
+
+@app.get("/metrics/review-queue")
+async def metrics_review_queue():
+    """Get Review Queue metric with full provenance."""
+    from services.metrics_service import get_metrics_service
+    metrics = get_metrics_service()
+    return metrics.calculate_review_queue()
+
+@app.get("/metrics/all")
+async def metrics_all():
+    """Get all business metrics in one call."""
+    from services.metrics_service import get_metrics_service
+    metrics = get_metrics_service()
+    return metrics.get_all_business_metrics()
 
 @app.get("/dashboard/stats")
 async def dashboard_stats():
@@ -789,22 +848,57 @@ async def recent_transactions(limit: int = 10):
     conn = sqlite3.connect("data/fraudshield.db")
     cur = conn.cursor()
     cur.execute("""
-        SELECT transaction_id, customer_id, amount, channel, location, timestamp, story
+        SELECT transaction_id, customer_id, source_account, beneficiary_account, amount, channel, location, timestamp,
+               device_id, days_since_last_txn, customer_avg_amount, previous_alerts, is_international, story
         FROM transactions
         ORDER BY timestamp DESC
         LIMIT ?
     """, (limit,))
     rows = cur.fetchall()
     conn.close()
-    return [
-        {
-            "id": r[0],
-            "customer": r[1],
-            "amount": r[2],
-            "channel": r[3],
-            "location": r[4],
-            "timestamp": r[5],
-            "story": r[6]
-        }
-        for r in rows
-    ]
+
+    def compute_risk(amount, avg_amount, previous_alerts, is_international):
+        score = 0
+        if avg_amount and avg_amount > 0:
+            ratio = amount / avg_amount
+            score += 30 if ratio >= 3 else 0
+            score += 15 if ratio >= 10 else 0
+        score += 20 if previous_alerts >= 2 else 0
+        score += 10 if is_international else 0
+        score = min(100, int(score))
+        if score >= 85:
+            level = 'Critical'
+        elif score >= 70:
+            level = 'High'
+        elif score >= 45:
+            level = 'Medium'
+        else:
+            level = 'Low'
+        decision = 'BLOCK' if score >= 70 else 'REVIEW' if score >= 40 else 'ALLOW'
+        return score, level, decision
+
+    result = []
+    for r in rows:
+        amount = float(r[4] or 0)
+        avg_amount = float(r[10] or 0)
+        score, level, decision = compute_risk(amount, avg_amount, int(r[11] or 0), bool(r[12] or 0))
+        result.append({
+            "transaction_id": r[0],
+            "customer_id": r[1],
+            "source_account": r[2] or "Unknown",
+            "beneficiary_account": r[3] or "Unknown",
+            "amount": amount,
+            "channel": r[5],
+            "location": r[6],
+            "timestamp": r[7],
+            "device_id": r[8] or "Unknown",
+            "days_since_last_txn": int(r[9] or 0),
+            "customer_avg_amount": avg_amount,
+            "previous_alerts": int(r[11] or 0),
+            "is_international": bool(r[12] or 0),
+            "story": r[13] or "",
+            "risk_score": score,
+            "risk_level": level,
+            "decision": decision,
+        })
+    return result

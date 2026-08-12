@@ -18,6 +18,7 @@ class GraphResult(BaseModel):
     edges: List[GraphEdge]
 
 class InvestigationResult(BaseModel):
+    """Investigation case result with outcomes and financial tracking."""
     case_id: str
     transaction_id: str
     customer_id: str
@@ -38,3 +39,25 @@ class InvestigationResult(BaseModel):
     created_at: str
     audit: List[Dict[str, Any]]
     similar_cases: Optional[List[Dict]] = None
+    
+    # Ground-truth fraud outcome (not risk prediction)
+    # Values: UNKNOWN, LEGITIMATE, CONFIRMED_FRAUD
+    outcome: str = "UNKNOWN"
+    
+    # Decision made on the transaction
+    # Values: ALLOW, REVIEW, CHALLENGE, BLOCK
+    decision: str = "ALLOW"
+    
+    # Whether the transaction completed (true = completed, false = prevented)
+    transactionCompleted: bool = True
+    
+    # Financial outcome fields
+    # Only populated when confirmed fraud with financial data available
+    actualLossAmount: Optional[float] = None  # Actual financial loss incurred
+    recoveredAmount: Optional[float] = None  # Amount recovered through chargeback/refund
+    preventedAmount: Optional[float] = None  # Amount prevented from being lost (BLOCK/CHALLENGE decision)
+    
+    # Metadata for metrics calculation
+    wasDetected: bool = False  # Was fraud detected by system before confirmation
+    detectionTimestamp: Optional[str] = None  # When fraud was detected
+    outcomeConfirmedTimestamp: Optional[str] = None  # When outcome was confirmed
